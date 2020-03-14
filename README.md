@@ -42,7 +42,7 @@ $ ls -l bazel-genfiles/tensorflow/lite/delegates/gpu
 - Open application folder (eg. ```tflite_posenet```).
 - Build and Run.
 
-## Tested Envronment
+## Tested Environment
 
 | Host PC             | Target Device           |
 |:-------------------:|:-----------------------:|
