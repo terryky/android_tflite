@@ -1,5 +1,5 @@
 # android_tflite
-Android applications using TensorFlow Lite.
+Android native applications using TensorFlow Lite C++ APIs.
 
 
 
