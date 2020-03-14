@@ -1,5 +1,5 @@
-# android_gles_app
-Android applications using OpenGLES graphics.
+# android_tflite
+Android applications using TensorFlow Lite.
 
 
 
