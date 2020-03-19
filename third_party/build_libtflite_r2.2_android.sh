@@ -2,7 +2,7 @@
 set -e
 #set -x
 
-export TENSORFLOW_VER=r2.1
+export TENSORFLOW_VER=r2.2
 export TENSORFLOW_DIR=`pwd`/tensorflow
 
 export ANDROID_NDK_HOME=${HOME}/Android/android-ndk-r20b
@@ -19,10 +19,10 @@ cd ${TENSORFLOW_DIR}
 git checkout ${TENSORFLOW_VER}
 
 
-# install Bazel 0.29.0
-#wget https://github.com/bazelbuild/bazel/releases/download/0.29.0/bazel-0.29.0-installer-linux-x86_64.sh
-#chmod 755 bazel-0.29.0-installer-linux-x86_64.sh
-#sudo ./bazel-0.29.0-installer-linux-x86_64.sh
+# install Bazel 2.0.0
+#wget https://github.com/bazelbuild/bazel/releases/download/2.0.0/bazel-2.0.0-installer-linux-x86_64.sh
+#chmod 755 bazel-2.0.0-installer-linux-x86_64.sh
+#sudo ./bazel-2.0.0-installer-linux-x86_64.sh
 
 # clean up bazel cache, just in case.
 bazel clean
@@ -43,6 +43,6 @@ echo "----------------------------------------------------"
 bazel build -s -c opt --cxxopt='--std=c++11' --config=android_arm64 //tensorflow/lite:libtensorflowlite.so
 bazel build -s -c opt --cxxopt='--std=c++11' --config android_arm64 //tensorflow/lite/delegates/gpu:libtensorflowlite_gpu_delegate.so
 
-ls -l bazel-genfiles/tensorflow/lite/
-ls -l bazel-genfiles/tensorflow/lite/delegates/gpu
+ls -l bazel-bin/tensorflow/lite/
+ls -l bazel-bin/tensorflow/lite/delegates/gpu
 

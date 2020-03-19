@@ -10,6 +10,7 @@ export ANDROID_NDK_API_LEVEL="27"
 export ANDROID_BUILD_TOOLS_VERSION="29.0.3"
 export ANDROID_SDK_API_LEVEL="27"
 export ANDROID_SDK_HOME=${HOME}/Android/Sdk
+export ANDROID_API_LEVEL="27"
 
 
 git clone https://github.com/tensorflow/tensorflow.git ${TENSORFLOW_DIR}
