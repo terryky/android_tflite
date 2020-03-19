@@ -22,16 +22,16 @@ add_library(native_app_glue STATIC
     ${ANDROID_NDK}/sources/android/native_app_glue/android_native_app_glue.c)
 
 # now build app's shared lib
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=gnu++11 -Wall -Werror")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=gnu++11 -Wall")
 
 # Export ANativeActivity_onCreate(),
 # Refer to: https://github.com/android-ndk/ndk/issues/381.
 set(CMAKE_SHARED_LINKER_FLAGS
     "${CMAKE_SHARED_LINKER_FLAGS} -u ANativeActivity_onCreate")
 
-get_filename_component(commonDir ${CMAKE_CURRENT_SOURCE_DIR}/../../../../../common ABSOLUTE)
-get_filename_component(thirdpDir ${CMAKE_CURRENT_SOURCE_DIR}/../../../../../third_party ABSOLUTE)
-get_filename_component(jnilibDir ${CMAKE_CURRENT_SOURCE_DIR}/../jniLibs ABSOLUTE)
+set(commonDir ${CMAKE_CURRENT_SOURCE_DIR}/../../../../../common)
+set(thirdpDir ${CMAKE_CURRENT_SOURCE_DIR}/../../../../../third_party)
+set(jnilibDir ${CMAKE_CURRENT_SOURCE_DIR}/../jniLibs)
 
 # download stb library
 if ((NOT EXISTS ${thirdpDir}/stb) OR
@@ -44,12 +44,14 @@ endif()
 
 
 # ------------------------------------------------------------
-#  for TensorFlow lite 
+#  for TensorFlow Lite
 # ------------------------------------------------------------
-
 get_filename_component(tfliteDir ${thirdpDir}/tensorflow ABSOLUTE)
 
-file(COPY ${tfliteDir}/bazel-genfiles/tensorflow/lite/libtensorflowlite.so
+#get_filename_component(bazelgenDir ${tfliteDir}/bazel-genfiles ABSOLUTE) #for tf2.1
+get_filename_component(bazelgenDir ${tfliteDir}/bazel-bin ABSOLUTE) #for tf2.2
+
+file(COPY ${bazelgenDir}/tensorflow/lite/libtensorflowlite.so
 	DESTINATION ${jnilibDir}/arm64-v8a)
 
 add_library(lib_tflite SHARED IMPORTED)
@@ -57,9 +59,28 @@ set_target_properties(lib_tflite PROPERTIES IMPORTED_LOCATION
 	${jnilibDir}/arm64-v8a/libtensorflowlite.so)
 
 include_directories(${tfliteDir}/
-                    ${tfliteDir}/bazel-genfiles/../../../external/flatbuffers/include)
+                    ${bazelgenDir}/../../../external/flatbuffers/include
+                    ${bazelgenDir}/../../../external/com_google_absl
+                    )
 
 
+# ------------------------------------------------------------
+#  for TensorFlow Lite GPU Delegate
+# ------------------------------------------------------------
+add_compile_options(-DUSE_GPU_DELEGATEV2)
+
+file(COPY ${bazelgenDir}/tensorflow/lite/delegates/gpu/libtensorflowlite_gpu_delegate.so
+    DESTINATION ${jnilibDir}/arm64-v8a)
+
+add_library(lib_tflite_gpu_delegate SHARED IMPORTED)
+set_target_properties(lib_tflite_gpu_delegate PROPERTIES IMPORTED_LOCATION
+    ${jnilibDir}/arm64-v8a/libtensorflowlite_gpu_delegate.so)
+
+
+# ------------------------------------------------------------
+#  for Integer Quantized TFLite Model
+# ------------------------------------------------------------
+#add_compile_options(-DUSE_QUANT_TFLITE_MODEL)
 
 
 
@@ -93,4 +114,5 @@ target_link_libraries(native-activity
     EGL
     GLESv2
     lib_tflite
+    lib_tflite_gpu_delegate
     log)

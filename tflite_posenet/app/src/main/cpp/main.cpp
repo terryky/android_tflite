@@ -236,6 +236,30 @@ adjust_texture (int win_w, int win_h, int texw, int texh,
     *dh = (int)scaled_h;
 }
 
+static void
+draw_tfilte_config_info (struct engine *engine)
+{
+    char strbuf[512];
+    float col_pink[]  = {1.0f, 0.0f, 1.0f, 0.5f};
+    float col_gray[]  = {0.5f, 0.5f, 0.5f, 0.5f};
+    float col_white[] = {1.0f, 1.0f, 1.0f, 1.0f};
+    float *col_bg;
+    
+#if defined (USE_GPU_DELEGATEV2)
+    sprintf (strbuf, "GPU_DELEGATEV2: ON ");
+    col_bg = col_pink;
+#else
+    sprintf (strbuf, "GPU_DELEGATEV2: OFF");
+    col_bg = col_gray;
+#endif
+    draw_dbgstr_ex (strbuf, engine->disp_w - 500, 0, 2.0f, col_white, col_bg);
+
+#if defined (USE_QUANT_TFLITE_MODEL)
+    sprintf (strbuf, "MODEL_INTQUANT: ON ");
+    col_bg = col_pink;
+    draw_dbgstr_ex (strbuf, engine->disp_w - 500, 48, 2.0f, col_white, col_bg);
+#endif
+}
 
 static void 
 engine_draw_frame(struct engine* engine) 
@@ -284,8 +308,7 @@ engine_draw_frame(struct engine* engine)
         draw_2d_texture (texid,  draw_x, draw_y, draw_w, draw_h, 0);
         render_posenet_result (draw_x, draw_y, draw_w, draw_h, &pose_ret);
 
-        sprintf (strbuf, "TFLITE_STAT : %d", s_tflite_stat);
-        draw_dbgstr (strbuf, engine->disp_w - 300, 0);
+        draw_tfilte_config_info (engine);
 
         /* renderer info */
         draw_dbgstr (engine->str_glverstion, 10, 0);

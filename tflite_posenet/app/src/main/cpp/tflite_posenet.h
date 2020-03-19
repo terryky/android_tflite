@@ -11,8 +11,11 @@
 extern "C" {
 #endif
 
+#if defined (USE_QUANT_TFLITE_MODEL)
+#define POSENET_MODEL_PATH  "posenet_model/model-mobilenet_v1_101_257_full_integer_quant.tflite"
+#else
 #define POSENET_MODEL_PATH  "posenet_model/posenet_mobilenet_v1_100_257x257_multi_kpt_stripped.tflite"
-
+#endif
 
 #define MAX_POSE_NUM  10
 

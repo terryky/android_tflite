@@ -6,6 +6,11 @@
 #include "tensorflow/lite/model.h"
 #include "tensorflow/lite/optional_debug_tools.h"
 
+#if defined (USE_GPU_DELEGATEV2)
+#include "tensorflow/lite/delegates/gpu/delegate.h"
+#endif
+
+#include <list>
 #include "tflite_posenet.h"
 #include "util_debug.h"
 
@@ -88,6 +93,19 @@ init_tflite_posenet(ssbo_t *ssbo, const char *model_buf, size_t model_size)
         DBG_LOGE ("ERR: %s(%d)\n", __FILE__, __LINE__);
         return -2;
     }
+
+#if defined (USE_GPU_DELEGATEV2)
+    const TfLiteGpuDelegateOptionsV2 options = {
+        .is_precision_loss_allowed = 1, // FP16
+        .inference_preference = TFLITE_GPU_INFERENCE_PREFERENCE_FAST_SINGLE_ANSWER
+    };
+    auto* delegate = TfLiteGpuDelegateV2Create(&options);
+    if (interpreter->ModifyGraphWithDelegate(delegate) != kTfLiteOk)
+    {
+        fprintf (stderr, "ERR: %s(%d)\n", __FILE__, __LINE__);
+        return -1;
+    }
+#endif
 
     interpreter->SetNumThreads(4);
     if (interpreter->AllocateTensors() != kTfLiteOk)
