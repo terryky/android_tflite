@@ -1,5 +1,5 @@
-# android_tflite
-Android native applications using TensorFlow Lite C++ APIs.
+# GPU Accelerated TensorFlow Lite applications on Android NDK.
+Run and measure the performance of TensorFlow Lite GPU Delegate on Android NDK.
 
 
 
@@ -7,30 +7,31 @@ Android native applications using TensorFlow Lite C++ APIs.
 | App name    | Descriptions |
 |:-----------:|:------------:|
 | [tflite_posenet](https://github.com/terryky/android_tflite/tree/master/tflite_posenet)| ![img](tflite_posenet/tflite_posenet.png " image") <br> Pose Estimation.|
+| [tflite_style_transfer](https://github.com/terryky/android_tflite/tree/master/tflite_style_transfer)| ![img](tflite_style_transfer/style_transfer.png " image") <br> Artistic style transfer.|
 
 
 ## How to Build & Run
 
-### (step-1) Build TensorFlow Lite libraries.
+### (step-1) Build TensorFlow Lite library and GPU Delegate library.
 - Download and install [Android NDK](https://developer.android.com/ndk/downloads).
 - Download and install [bazel](https://docs.bazel.build/versions/master/install-ubuntu.html).
-- Run a build script.
+- Run a build script as bellow.
+  This script launch the ```./configure``` command, so press enter-key several times to select the default config.
 
 
 ```
 $ cd android_tflite/third_party/
-$ ./build_libtflite_r2.0_android.sh
+$ ./build_libtflite_r2.2_android.sh
 ```
 
-And then, TensorFlow Lite libraries are generated as follows.
+Then, you will get TensorFlow Lite library and GPU Delegate library as follows.
 
 ```
-$ cd android_tflite/third_party/tensorflow
-$ ls -l bazel-genfiles/tensorflow/lite/
--r-xr-xr-x  1 terryky terryky 2166728 Mar 13 00:55 libtensorflowlite.so*
+$ ls -l tensorflow/bazel-bin/tensorflow/lite/
+-r-xr-xr-x  1 terryky terryky  2610368  3ŒŽ 20 13:42 libtensorflowlite.so*
 
-$ ls -l bazel-genfiles/tensorflow/lite/delegates/gpu
--r-xr-xr-x 1 terryky terryky 36963952 Mar 13 00:56 libtensorflowlite_gpu_gl.so*
+$ ls -l tensorflow/bazel-bin/tensorflow/lite/delegates/gpu/
+-r-xr-xr-x 1 terryky terryky  59657040  3ŒŽ 20 13:43 libtensorflowlite_gpu_delegate.so*
 ```
 
 

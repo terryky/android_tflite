@@ -63,7 +63,7 @@ load_asset_texture (struct engine* engine)
     engine->texh = img_h;
 
     /* load texture for style prediction */
-    img_buf = asset_read_image (engine->app->activity->assetManager, (char *)"visual-cloud-03.jpg", &img_w, &img_h);
+    img_buf = asset_read_image (engine->app->activity->assetManager, (char *)"munch_scream.jpg", &img_w, &img_h);
     engine->style_texid = create_2d_texture ((void *)img_buf, img_w, img_h);
     asset_free_image (img_buf);
 
