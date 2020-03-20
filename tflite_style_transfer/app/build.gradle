@@ -1,0 +1,36 @@
+apply plugin: 'com.android.application'
+
+android {
+    compileSdkVersion 29
+
+    defaultConfig {
+        applicationId = 'com.example.tflite_style_transfer'
+        minSdkVersion 27
+        targetSdkVersion 28
+        externalNativeBuild {
+            cmake {
+                arguments '-DANDROID_STL=c++_static'
+            }
+        }
+        ndk.abiFilters 'arm64-v8a'
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'),
+                    'proguard-rules.pro'
+        }
+    }
+    externalNativeBuild {
+        cmake {
+            version '3.10.2'
+            path 'src/main/cpp/CMakeLists.txt'
+        }
+    }
+}
+
+dependencies {
+    implementation fileTree(dir: 'libs', include: ['*.jar'])
+    implementation 'androidx.appcompat:appcompat:1.0.2'
+    implementation 'androidx.constraintlayout:constraintlayout:1.1.3'
+}
