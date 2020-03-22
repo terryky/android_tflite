@@ -289,6 +289,12 @@ engine_draw_frame(struct engine* engine)
 
     glClearColor (0.f, 0.f, 0.f, 1.0f);
 
+#if defined (USE_GPU_DELEGATEV2)
+    /* we need to recover framebuffer because GPU Delegate changes the context */
+    glBindFramebuffer (GL_FRAMEBUFFER, 0);
+    glViewport (0, 0, win_w, win_h);
+#endif
+
     int count = engine->frame_count;
 
     /* --------------------------------------- *

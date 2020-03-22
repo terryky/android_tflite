@@ -117,7 +117,10 @@ tflite_create_interpreter (tflite_interpreter_t *p, const char *model_buf, size_
 #if defined (USE_GPU_DELEGATEV2)
     const TfLiteGpuDelegateOptionsV2 options = {
         .is_precision_loss_allowed = 1, // FP16
-        .inference_preference = TFLITE_GPU_INFERENCE_PREFERENCE_FAST_SINGLE_ANSWER
+        .inference_preference = TFLITE_GPU_INFERENCE_PREFERENCE_FAST_SINGLE_ANSWER,
+        .inference_priority1 = TFLITE_GPU_INFERENCE_PRIORITY_MIN_LATENCY,
+        .inference_priority2 = TFLITE_GPU_INFERENCE_PRIORITY_AUTO,
+        .inference_priority3 = TFLITE_GPU_INFERENCE_PRIORITY_AUTO,
     };
     auto* delegate = TfLiteGpuDelegateV2Create(&options);
     if (p->interpreter->ModifyGraphWithDelegate(delegate) != kTfLiteOk)
