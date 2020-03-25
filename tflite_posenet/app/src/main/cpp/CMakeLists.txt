@@ -84,8 +84,12 @@ set_target_properties(lib_tflite_gpu_delegate PROPERTIES IMPORTED_LOCATION
 
 
 
-add_library(native-activity SHARED main.cpp
-        tflite_posenet.cpp
+add_library(native-activity SHARED
+        ${CMAKE_CURRENT_SOURCE_DIR}/android_main.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/app_engine.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/tflite_posenet.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/camera_manager.cpp
+        ${commonDir}/android/camera_utils.cpp
         ${commonDir}/android/util_asset.cpp
         ${commonDir}/assertgl.c
         ${commonDir}/assertegl.c
@@ -111,6 +115,9 @@ target_include_directories(native-activity PRIVATE
 target_link_libraries(native-activity
     android
     native_app_glue
+    m
+    camera2ndk
+    mediandk
     EGL
     GLESv2
     lib_tflite
