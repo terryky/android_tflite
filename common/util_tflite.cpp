@@ -130,6 +130,43 @@ tflite_create_interpreter (tflite_interpreter_t *p, const char *model_buf, size_
     }
 #endif
 
+#if defined (USE_NNAPI_DELEGATE)
+    auto *delegate = tflite::NnApiDelegate ();
+    if (p->interpreter->ModifyGraphWithDelegate(delegate) != kTfLiteOk)
+    {
+        DBG_LOGE ("ERR: %s(%d)\n", __FILE__, __LINE__);
+        return -1;
+    }
+#endif
+
+
+#if defined (USE_HEXAGON_DELEGATE)
+    // Assuming shared libraries are under "/data/local/tmp/"
+    // If files are packaged with native lib in android App then it
+    // will typically be equivalent to the path provided by
+    // "getContext().getApplicationInfo().nativeLibraryDir"
+
+    //const char library_directory_path[] = "/data/local/tmp/";
+    //TfLiteHexagonInitWithPath(library_directory_path);  // Needed once at startup.
+
+    TfLiteHexagonInit();  // Needed once at startup.
+    TfLiteHexagonDelegateOptions params = {0};
+
+    // 'delegate_ptr' Need to outlive the interpreter. For example,
+    // If use case will need to resize input or anything that can trigger
+    // re-applying delegates then 'delegate_ptr' need to outlive the interpreter.
+    auto* delegate_ptr = TfLiteHexagonDelegateCreate(&params);
+    tflite::Interpreter::TfLiteDelegatePtr delegate(delegate_ptr,
+        [](TfLiteDelegate* delegate) {
+            TfLiteHexagonDelegateDelete(delegate);
+        });
+    if (p->interpreter->ModifyGraphWithDelegate(delegate.get()) != kTfLiteOk)
+    {
+        DBG_LOGE ("ERR: %s(%d)\n", __FILE__, __LINE__);
+        return -1;
+    }
+#endif
+
     p->interpreter->SetNumThreads(4);
     if (p->interpreter->AllocateTensors() != kTfLiteOk)
     {

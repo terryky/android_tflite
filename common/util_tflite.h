@@ -13,6 +13,14 @@
 #include "tensorflow/lite/delegates/gpu/delegate.h"
 #endif
 
+#if defined (USE_NNAPI_DELEGATE)
+#include "tensorflow/lite/delegates/nnapi/nnapi_delegate.h"
+#endif
+
+#if defined (USE_HEXAGON_DELEGATE)
+#include "tensorflow/lite/experimental/delegates/hexagon/hexagon_delegate.h"
+#endif
+
 #include "util_debug.h"
 
 
