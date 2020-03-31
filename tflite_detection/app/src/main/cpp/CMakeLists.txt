@@ -78,6 +78,12 @@ set_target_properties(lib_tflite_gpu_delegate PROPERTIES IMPORTED_LOCATION
 
 
 # ------------------------------------------------------------
+#  for TensorFlow Lite NNAPI Delegate
+# ------------------------------------------------------------
+#add_compile_options(-DUSE_NNAPI_DELEGATE)
+
+
+# ------------------------------------------------------------
 #  for Integer Quantized TFLite Model
 # ------------------------------------------------------------
 #add_compile_options(-DUSE_QUANT_TFLITE_MODEL)
@@ -87,7 +93,7 @@ set_target_properties(lib_tflite_gpu_delegate PROPERTIES IMPORTED_LOCATION
 add_library(native-activity SHARED
         ${CMAKE_CURRENT_SOURCE_DIR}/android_main.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/app_engine.cpp
-        tflite_detect.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/tflite_detect.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/camera_manager.cpp
         ${commonDir}/android/camera_utils.cpp
         ${commonDir}/android/util_asset.cpp
