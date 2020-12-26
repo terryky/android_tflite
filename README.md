@@ -12,35 +12,59 @@ Run and measure the performance of TensorFlow Lite GPU Delegate on Android NDK.
 
 ## How to Build & Run
 
-### (step-1) Build TensorFlow Lite library and GPU Delegate library.
+### 2.1 setup environment
+
 - Download and install [Android NDK](https://developer.android.com/ndk/downloads).
+
+```
+$ mkdir ~/Android/
+$ mv ~/Download/android-ndk-r20b-linux-x86_64.zip ~/Android
+$ cd ~/Android
+$ unzip android-ndk-r20b-linux-x86_64.zip
+```
+
 - Download and install [bazel](https://docs.bazel.build/versions/master/install-ubuntu.html).
-- Run a build script as bellow.
-  This script launch the ```./configure``` command, so press enter-key several times to select the default config.
-
 
 ```
+$ wget https://github.com/bazelbuild/bazel/releases/download/3.1.0/bazel-3.1.0-installer-linux-x86_64.sh
+$ chmod 755 bazel-3.1.0-installer-linux-x86_64.sh
+$ sudo ./bazel-3.1.0-installer-linux-x86_64.sh
+```
+
+### 2.2 build TensorFlow Lite library and GPU Delegate library
+
+- run the build script to build TensorFlow Library
+
+```
+$ mkdir ~/work
+$ git clone https://github.com/terryky/android_tflite.git
 $ cd android_tflite/third_party/
-$ ./build_libtflite_r2.2_android.sh
-```
+$ ./build_libtflite_r2.4_android.sh
 
-Then, you will get TensorFlow Lite library and GPU Delegate library as follows.
+(Tensorflow configure will start after a while. Please enter according to your environment)
 
-```
+
 $ ls -l tensorflow/bazel-bin/tensorflow/lite/
--r-xr-xr-x  1 terryky terryky  2610368  3ŒŽ 20 13:42 libtensorflowlite.so*
+-r-xr-xr-x  1 terryky terryky 3118552 Dec 26 19:58 libtensorflowlite.so*
 
 $ ls -l tensorflow/bazel-bin/tensorflow/lite/delegates/gpu/
--r-xr-xr-x 1 terryky terryky  59657040  3ŒŽ 20 13:43 libtensorflowlite_gpu_delegate.so*
+-r-xr-xr-x 1 terryky terryky 80389344 Dec 26 19:59 libtensorflowlite_gpu_delegate.so*
 ```
 
 
 
 
-### (step-2) Build Android Applications
+### 2.3 Build Android Applications
 - Download and install [Android Studio](https://developer.android.com/studio/install).
 - Start Android Studio.
-- Open application folder (eg. ```tflite_posenet```).
+
+```
+$ cd ${ANDROID_STUDIO_INSTALL_DIR}/android-studio/bin/
+$ ./studio.sh
+```
+
+- Install NDK 20.0 by SDK Manager of Android Studio.
+- Open application folder (eg. ```~/work/android_tflite/tflite_posenet```).
 - Build and Run.
 
 ## Tested Environment
