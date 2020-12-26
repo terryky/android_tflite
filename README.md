@@ -3,14 +3,14 @@ Run and measure the performance of TensorFlow Lite GPU Delegate on Android NDK.
 
 
 
-## applications
+## 1. Applications
 | App name    | Descriptions |
 |:-----------:|:------------:|
 | [tflite_posenet](https://github.com/terryky/android_tflite/tree/master/tflite_posenet)| ![img](tflite_posenet/tflite_posenet.png " image") <br> Pose Estimation.|
 | [tflite_style_transfer](https://github.com/terryky/android_tflite/tree/master/tflite_style_transfer)| ![img](tflite_style_transfer/style_transfer.png " image") <br> Artistic style transfer.|
 
 
-## How to Build & Run
+## 2. How to Build & Run
 
 ### 2.1 setup environment
 
