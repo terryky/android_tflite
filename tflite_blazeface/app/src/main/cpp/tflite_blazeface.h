@@ -1,6 +1,6 @@
 /* ------------------------------------------------ *
  * The MIT License (MIT)
- * Copyright (c) 2019 terryky1220@gmail.com
+ * Copyright (c) 2020 terryky1220@gmail.com
  * ------------------------------------------------ */
 #ifndef TFLITE_BLAZEFACE_H_
 #define TFLITE_BLAZEFACE_H_
@@ -8,6 +8,9 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/* https://github.com/google/mediapipe/tree/master/mediapipe/models/face_detection_front.tflite */
+#define BLAZEFACE_MODEL_PATH  "blazeface_model/face_detection_front.tflite"
 
 #define MAX_FACE_NUM  100
 
@@ -43,10 +46,10 @@ typedef struct _blazeface_result_t
 
 
 
-extern int init_tflite_blazeface ();
-extern void  *get_blazeface_input_buf (int *w, int *h);
+int init_tflite_blazeface (const char *model_buf, size_t model_size);
+void  *get_blazeface_input_buf (int *w, int *h);
 
-extern int invoke_blazeface (blazeface_result_t *blazeface_result);
+int invoke_blazeface (blazeface_result_t *blazeface_result);
     
 #ifdef __cplusplus
 }

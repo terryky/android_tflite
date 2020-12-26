@@ -109,7 +109,7 @@ set_target_properties(lib_tflite_gpu_delegate PROPERTIES IMPORTED_LOCATION
 add_library(native-activity SHARED
         ${CMAKE_CURRENT_SOURCE_DIR}/android_main.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/app_engine.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/tflite_deeplab.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/tflite_blazeface.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/camera_manager.cpp
         ${commonDir}/android/camera_utils.cpp
         ${commonDir}/android/util_asset.cpp

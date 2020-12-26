@@ -1,23 +1,19 @@
 /* ------------------------------------------------ *
  * The MIT License (MIT)
- * Copyright (c) 2019 terryky1220@gmail.com
+ * Copyright (c) 2020 terryky1220@gmail.com
  * ------------------------------------------------ */
 #include "tensorflow/lite/kernels/register.h"
 #include "tensorflow/lite/model.h"
 #include "tensorflow/lite/optional_debug_tools.h"
-#if defined (USE_GL_DELEGATE)
-#include "tensorflow/lite/delegates/gpu/gl_delegate.h"
-#endif
+
 #if defined (USE_GPU_DELEGATEV2)
 #include "tensorflow/lite/delegates/gpu/delegate.h"
 #endif
-#include "tflite_blazeface.h"
-#include <float.h>
 
-/* 
- * https://github.com/google/mediapipe/tree/master/mediapipe/models/face_detection_front.tflite
- */
-#define BLAZEFACE_MODEL_PATH  "./blazeface_model/face_detection_front.tflite"
+#include <list>
+#include "tflite_blazeface.h"
+#include "util_debug.h"
+#include <float.h>
 
 using namespace std;
 using namespace tflite;
@@ -34,77 +30,6 @@ static int     s_img_w = 0;
 static int     s_img_h = 0;
 static std::list<fvec2> s_anchors;
 
-
-static void
-print_tensor_dim (int tensor_id)
-{
-    TfLiteIntArray *dim = interpreter->tensor(tensor_id)->dims;
-    
-    for (int i = 0; i < dim->size; i ++)
-    {
-        if (i > 0)
-            fprintf (stderr, "x");
-        fprintf (stderr, "%d", dim->data[i]);
-    }
-    fprintf (stderr, "\n");
-}
-
-static void
-print_tensor_info ()
-{
-    int i, idx;
-    int in_size  = interpreter->inputs().size();
-    int out_size = interpreter->outputs().size();
-
-    fprintf (stderr, "-----------------------------------------------------------------------------\n");
-    fprintf (stderr, "tensors size     : %zu\n", interpreter->tensors_size());
-    fprintf (stderr, "nodes   size     : %zu\n", interpreter->nodes_size());
-    fprintf (stderr, "number of inputs : %d\n", in_size);
-    fprintf (stderr, "number of outputs: %d\n", out_size);
-    fprintf (stderr, "input(0) name    : %s\n", interpreter->GetInputName(0));
-
-    fprintf (stderr, "\n");
-    fprintf (stderr, "-----------------------------------------------------------------------------\n");
-    fprintf (stderr, "                     name                     bytes  type  scale   zero_point\n");
-    fprintf (stderr, "-----------------------------------------------------------------------------\n");
-    int t_size = interpreter->tensors_size();
-    for (i = 0; i < t_size; i++) 
-    {
-        fprintf (stderr, "Tensor[%2d] %-32s %8zu, %2d, %f, %3d\n", i,
-            interpreter->tensor(i)->name, 
-            interpreter->tensor(i)->bytes,
-            interpreter->tensor(i)->type,
-            interpreter->tensor(i)->params.scale,
-            interpreter->tensor(i)->params.zero_point);
-    }
-
-    fprintf (stderr, "\n");
-    fprintf (stderr, "-----------------------------------------------------------------------------\n");
-    fprintf (stderr, " Input Tensor Dimension\n");
-    fprintf (stderr, "-----------------------------------------------------------------------------\n");
-    for (i = 0; i < in_size; i ++)
-    {
-        idx = interpreter->inputs()[i];
-        fprintf (stderr, "Tensor[%2d]: ", idx);
-        print_tensor_dim (idx);
-    }
-
-    fprintf (stderr, "\n");
-    fprintf (stderr, "-----------------------------------------------------------------------------\n");
-    fprintf (stderr, " Output Tensor Dimension\n");
-    fprintf (stderr, "-----------------------------------------------------------------------------\n");
-    for (i = 0; i < out_size; i ++)
-    {
-        idx = interpreter->outputs()[i];
-        fprintf (stderr, "Tensor[%2d]: ", idx);
-        print_tensor_dim (idx);
-    }
-
-    fprintf (stderr, "\n");
-    fprintf (stderr, "-----------------------------------------------------------------------------\n");
-    PrintInterpreterState(interpreter.get());
-    fprintf (stderr, "-----------------------------------------------------------------------------\n");
-}
 
 /*
  * determine where the anchor points are scatterd.
@@ -146,43 +71,29 @@ create_blazeface_anchors(int input_w, int input_h)
 
 
 int
-init_tflite_blazeface()
+init_tflite_blazeface(const char *model_buf, size_t model_size)
 {
-    model = FlatBufferModel::BuildFromFile(BLAZEFACE_MODEL_PATH);
+    model = FlatBufferModel::BuildFromBuffer (model_buf, model_size);
     if (!model)
     {
-        fprintf (stderr, "ERR: %s(%d)\n", __FILE__, __LINE__);
+        DBG_LOGE ("ERR: %s(%d)\n", __FILE__, __LINE__);
         return -1;
     }
 
     InterpreterBuilder(*model, resolver)(&interpreter);
     if (!interpreter)
     {
-        fprintf (stderr, "ERR: %s(%d)\n", __FILE__, __LINE__);
-        return -1;
+        DBG_LOGE ("ERR: %s(%d)\n", __FILE__, __LINE__);
+        return -2;
     }
 
-#if defined (USE_GL_DELEGATE)
-    const TfLiteGpuDelegateOptions options = {
-        .metadata = NULL,
-        .compile_options = {
-            .precision_loss_allowed = 1,  // FP16
-            .preferred_gl_object_type = TFLITE_GL_OBJECT_TYPE_FASTEST,
-            .dynamic_batch_enabled = 0,   // Not fully functional yet
-        },
-    };
-    auto* delegate = TfLiteGpuDelegateCreate(&options);
-
-    if (interpreter->ModifyGraphWithDelegate(delegate) != kTfLiteOk)
-    {
-        fprintf (stderr, "ERR: %s(%d)\n", __FILE__, __LINE__);
-        return -1;
-    }
-#endif
 #if defined (USE_GPU_DELEGATEV2)
     const TfLiteGpuDelegateOptionsV2 options = {
         .is_precision_loss_allowed = 1, // FP16
-        .inference_preference = TFLITE_GPU_INFERENCE_PREFERENCE_FAST_SINGLE_ANSWER
+        .inference_preference = TFLITE_GPU_INFERENCE_PREFERENCE_FAST_SINGLE_ANSWER,
+        .inference_priority1 = TFLITE_GPU_INFERENCE_PRIORITY_MIN_LATENCY,
+        .inference_priority2 = TFLITE_GPU_INFERENCE_PRIORITY_AUTO,
+        .inference_priority3 = TFLITE_GPU_INFERENCE_PRIORITY_AUTO,
     };
     auto* delegate = TfLiteGpuDelegateV2Create(&options);
     if (interpreter->ModifyGraphWithDelegate(delegate) != kTfLiteOk)
@@ -195,13 +106,9 @@ init_tflite_blazeface()
     interpreter->SetNumThreads(4);
     if (interpreter->AllocateTensors() != kTfLiteOk)
     {
-        fprintf (stderr, "ERR: %s(%d)\n", __FILE__, __LINE__);
-        return -1;
+        DBG_LOGE ("ERR: %s(%d)\n", __FILE__, __LINE__);
+        return -3;
     }
-
-#if 1 /* for debug */
-    print_tensor_info ();
-#endif
 
     in_ptr     = interpreter->typed_input_tensor<float>(0);
     bboxes_ptr = interpreter->typed_output_tensor<float>(0);
@@ -212,7 +119,7 @@ init_tflite_blazeface()
     TfLiteIntArray *dim = interpreter->tensor(input_idx)->dims;
     s_img_w = dim->data[2];
     s_img_h = dim->data[1];
-    fprintf (stderr, "input image size: (%d, %d)\n", s_img_w, s_img_h);
+    DBG_LOGI ("input image size: (%d, %d)\n", s_img_w, s_img_h);
 
     /* scores dimention */
     int scores_idx = interpreter->outputs()[0];
@@ -220,7 +127,7 @@ init_tflite_blazeface()
     int r0 = rgr_dim->data[0];
     int r1 = rgr_dim->data[1];
     int r2 = rgr_dim->data[2];
-    fprintf (stderr, "scores dim    : (%dx%dx%d)\n", r0, r1, r2);
+    DBG_LOGI ("scores dim    : (%dx%dx%d)\n", r0, r1, r2);
 
     /* classificators dimention */
     int bboxes_idx = interpreter->outputs()[1];
@@ -228,14 +135,14 @@ init_tflite_blazeface()
     int c0 = cls_dim->data[0];
     int c1 = cls_dim->data[1];
     int c2 = cls_dim->data[2];
-    fprintf (stderr, "bboxes dim    : (%dx%dx%d)\n", c0, c1, c2);
+    DBG_LOGI ("bboxes dim    : (%dx%dx%d)\n", c0, c1, c2);
 
     int anchor_num = create_blazeface_anchors (s_img_w, s_img_h);
-    fprintf (stderr, "anchors num   : %d\n", anchor_num);
+    DBG_LOGI ("anchors num   : %d\n", anchor_num);
 
     if (anchor_num != c1)
     {
-        fprintf (stderr, "ERR: %s(%d): anchor num doesn't much (%d != %d)\n",
+        DBG_LOGE ("ERR: %s(%d): anchor num doesn't much (%d != %d)\n",
                     __FILE__, __LINE__, anchor_num, c1);
         return -1;
     }
@@ -429,12 +336,12 @@ invoke_blazeface (blazeface_result_t *face_result)
 {
     if (interpreter->Invoke() != kTfLiteOk)
     {
-        fprintf (stderr, "ERR: %s(%d)\n", __FILE__, __LINE__);
+        DBG_LOGE ("ERR: %s(%d)\n", __FILE__, __LINE__);
         return -1;
     }
 
     /* decode boundary box and landmark keypoints */
-    float score_thresh = 0.75f;
+    float score_thresh = 0.5f;//0.75f;
     std::list<face_t> face_list;
 
     decode_bounds (face_list, score_thresh);

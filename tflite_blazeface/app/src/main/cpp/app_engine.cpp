@@ -131,7 +131,7 @@ void
 AppEngine::FeedInputImageUI8 (int texid, int win_w, int win_h)
 {
     int w, h;
-    uint8_t *buf_u8 = (uint8_t *)get_deeplab_input_buf (&w, &h);
+    uint8_t *buf_u8 = (uint8_t *)get_blazeface_input_buf (&w, &h);
 
     draw_2d_texture (texid, 0, win_h - h, w, h, 1);
 
@@ -170,7 +170,7 @@ void
 AppEngine::FeedInputImageFP32 (int texid, int win_w, int win_h)
 {
     int w, h;
-    float *buf_fp32 = (float *)get_deeplab_input_buf (&w, &h);
+    float *buf_fp32 = (float *)get_blazeface_input_buf (&w, &h);
 
     draw_2d_texture (texid, 0, win_h - h, w, h, 1);
 
@@ -203,148 +203,48 @@ AppEngine::FeedInputImageFP32 (int texid, int win_w, int win_h)
 void
 AppEngine::FeedInputImage (int texid, int win_w, int win_h)
 {
+#if 0
     int type = get_deeplab_input_type ();
     if (type)
         FeedInputImageUI8  (texid, win_w, win_h);
     else
+#endif
         FeedInputImageFP32 (texid, win_w, win_h);
 }
 
 
-void
-render_deeplab_result (int ofstx, int ofsty, int draw_w, int draw_h, deeplab_result_t *deeplab_ret)
+static void
+render_detect_region (int ofstx, int ofsty, int texw, int texh, blazeface_result_t *detection)
 {
-    float *segmap = deeplab_ret->segmentmap;
-    int segmap_w  = deeplab_ret->segmentmap_dims[0];
-    int segmap_h  = deeplab_ret->segmentmap_dims[1];
-    int segmap_c  = deeplab_ret->segmentmap_dims[2];
-    int x, y, c;
-    unsigned int imgbuf[segmap_h][segmap_w];
+    float col_red[]   = {1.0f, 0.0f, 0.0f, 1.0f};
+    float col_white[] = {1.0f, 1.0f, 1.0f, 1.0f};
 
-    /* find the most confident class for each pixel. */
-    for (y = 0; y < segmap_h; y ++)
+    for (int i = 0; i < detection->num; i ++)
     {
-        for (x = 0; x < segmap_w; x ++)
-        {
-            int max_id;
-            float conf_max = 0;
-            for (c = 0; c < 21; c ++)
-            {
-                float confidence = segmap[(y * segmap_w * segmap_c)+ (x * segmap_c) + c];
-                if (c == 0 || confidence > conf_max)
-                {
-                    conf_max = confidence;
-                    max_id = c;
-                }
-            }
-            float *col = get_deeplab_class_color (max_id);
-            unsigned char r = ((int)(col[0] * 255)) & 0xff;
-            unsigned char g = ((int)(col[1] * 255)) & 0xff;
-            unsigned char b = ((int)(col[2] * 255)) & 0xff;
-            unsigned char a = ((int)(col[3] * 255)) & 0xff;
-            imgbuf[y][x] = (a << 24) | (b << 16) | (g << 8) | (r);
-        }
-    }
-    
-    GLuint texid;
-    glGenTextures (1, &texid );
-    glBindTexture (GL_TEXTURE_2D, texid);
+        face_t *face = &(detection->faces[i]);
+        float x1 = face->topleft.x  * texw + ofstx;
+        float y1 = face->topleft.y  * texh + ofsty;
+        float x2 = face->btmright.x * texw + ofstx;
+        float y2 = face->btmright.y * texh + ofsty;
+        float score = face->score;
 
-    glTexParameterf (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameterf (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameterf (GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameterf (GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        /* rectangle region */
+        draw_2d_rect (x1, y1, x2-x1, y2-y1, col_red, 2.0f);
 
-    glPixelStorei (GL_UNPACK_ALIGNMENT, 4);
-
-    glTexImage2D (GL_TEXTURE_2D, 0, GL_RGBA,
-        segmap_w, segmap_h, 0, GL_RGBA,
-        GL_UNSIGNED_BYTE, imgbuf);
-
-    draw_2d_texture (texid, ofstx, ofsty, draw_w, draw_h, 0);
-
-    /* class name */
-    for (c = 0; c < 21; c ++)
-    {
-        float col_str[] = {1.0f, 1.0f, 1.0f, 1.0f};
-        float *col = get_deeplab_class_color (c);
-        char *name = get_deeplab_class_name (c);
+        /* class name */
         char buf[512];
-        sprintf (buf, "%2d:%s", c, name);
-        draw_dbgstr_ex (buf, ofstx, ofsty + c * 22 * 0.7, 0.7f, col_str, col);
-    }
+        sprintf (buf, "%d", (int)(score * 100));
+        draw_dbgstr_ex (buf, x1, y1, 1.0f, col_white, col_red);
 
-    glDeleteTextures (1, &texid);
-}
-
-void
-render_deeplab_heatmap (int ofstx, int ofsty, int draw_w, int draw_h, deeplab_result_t *deeplab_ret)
-{
-    float *segmap = deeplab_ret->segmentmap;
-    int segmap_w  = deeplab_ret->segmentmap_dims[0];
-    int segmap_h  = deeplab_ret->segmentmap_dims[1];
-    int segmap_c  = deeplab_ret->segmentmap_dims[2];
-    int x, y;
-    unsigned char imgbuf[segmap_h][segmap_w];
-    static int s_count = 0;
-    int key_id = (s_count /10)% 21;
-    s_count ++;
-    float conf_min, conf_max;
-
-
-#if 1
-    conf_min =  0.0f;
-    conf_max = 50.0f;
-#else
-    conf_min =  FLT_MAX;
-    conf_max = -FLT_MAX;
-    for (y = 0; y < segmap_h; y ++)
-    {
-        for (x = 0; x < segmap_w; x ++)
+        /* key points */
+        for (int j = 0; j < kFaceKeyNum; j ++)
         {
-            float confidence = segmap[(y * segmap_w * segmap_c)+ (x * segmap_c) + key_id];
-            if (confidence < conf_min) conf_min = confidence;
-            if (confidence > conf_max) conf_max = confidence;
+            float x = face->keys[j].x * texw + ofstx;
+            float y = face->keys[j].y * texh + ofsty;
+
+            int r = 4;
+            draw_2d_fillrect (x - (r/2), y - (r/2), r, r, col_red);
         }
-    }
-#endif
-
-    for (y = 0; y < segmap_h; y ++)
-    {
-        for (x = 0; x < segmap_w; x ++)
-        {
-            float confidence = segmap[(y * segmap_w * segmap_c)+ (x * segmap_c) + key_id];
-            confidence = (confidence - conf_min) / (conf_max - conf_min);
-            if (confidence < 0.0f) confidence = 0.0f;
-            if (confidence > 1.0f) confidence = 1.0f;
-            imgbuf[y][x] = confidence * 255;
-        }
-    }
-    
-    GLuint texid;
-    glGenTextures (1, &texid );
-    glBindTexture (GL_TEXTURE_2D, texid);
-
-    glTexParameterf (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameterf (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameterf (GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameterf (GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-
-    glPixelStorei (GL_UNPACK_ALIGNMENT, 1);
-
-    glTexImage2D (GL_TEXTURE_2D, 0, GL_LUMINANCE,
-        segmap_w, segmap_h, 0, GL_LUMINANCE,
-        GL_UNSIGNED_BYTE, imgbuf);
-
-    draw_2d_colormap (texid, ofstx, ofsty, draw_w, draw_h, 0.8f, 0);
-
-    glDeleteTextures (1, &texid);
-
-    {
-        char strbuf[128];
-        sprintf (strbuf, "%2d (%f, %f) %s\n", key_id, 
-            conf_min, conf_max, get_deeplab_class_name (key_id));
-        draw_dbgstr (strbuf, ofstx + 5, 5);
     }
 }
 
@@ -403,7 +303,7 @@ AppEngine::RenderFrame ()
 
     int count = glctx.frame_count;
     {
-        deeplab_result_t deeplab_result;
+        blazeface_result_t face_ret = {0};
         char strbuf[512];
 
         PMETER_RESET_LAP ();
@@ -418,14 +318,14 @@ AppEngine::RenderFrame ()
         FeedInputImage (texid, win_w, win_h);
 
         ttime[2] = pmeter_get_time_ms ();
-        invoke_deeplab (&deeplab_result);
+        invoke_blazeface (&face_ret);
         ttime[3] = pmeter_get_time_ms ();
         invoke_ms = ttime[3] - ttime[2];
 
         /* visualize the object detection results. */
         glClear (GL_COLOR_BUFFER_BIT);
         draw_2d_texture (texid,  draw_x, draw_y, draw_w, draw_h, 0);
-        render_deeplab_result (draw_x, draw_y, draw_w, draw_h, &deeplab_result);
+        render_detect_region (draw_x, draw_y, draw_w, draw_h, &face_ret);
 
         DrawTFLiteConfigInfo ();
 
@@ -505,14 +405,14 @@ AppEngine::InitGLES (void)
     init_dbgstr (w, h);
 
     asset_read_file (m_app->activity->assetManager,
-                    (char *)DEEPLAB_MODEL_PATH, m_detect_tflite_model_buf);
+                    (char *)BLAZEFACE_MODEL_PATH, m_detect_tflite_model_buf);
 
-    ret = init_tflite_deeplab (
+    ret = init_tflite_blazeface (
         (const char *)m_detect_tflite_model_buf.data(), m_detect_tflite_model_buf.size());
 
     glctx.disp_w = w;
     glctx.disp_h = h;
-    LoadInputTexture (&glctx.tex_static, (char *)"ride_horse.jpg");
+    LoadInputTexture (&glctx.tex_static, (char *)"pakutaso_sotsugyou.jpg");
 
     glctx.initdone = 1;
 }

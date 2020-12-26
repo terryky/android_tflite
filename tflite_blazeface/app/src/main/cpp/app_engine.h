@@ -12,7 +12,7 @@
 #include <GLES2/gl2.h>
 
 #include "camera_manager.h"
-#include "tflite_deeplab.h"
+#include "tflite_blazeface.h"
 
 typedef struct input_tex {
     GLuint texid;
