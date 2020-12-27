@@ -11,14 +11,9 @@
 #include <thread>
 #include <GLES2/gl2.h>
 
+#include "util_texture.h"
 #include "camera_manager.h"
 #include "tflite_posenet.h"
-
-typedef struct input_tex {
-    GLuint texid;
-    int    w, h;
-    int    draw_x, draw_y, draw_w, draw_h;
-} input_tex_t;
 
 typedef struct gles_ctx {
     int initdone;
@@ -31,8 +26,8 @@ typedef struct gles_ctx {
     int disp_w, disp_h;
 
     bool tex_camera_valid;
-    input_tex_t tex_static;
-    input_tex_t tex_camera;
+    texture_2d_t tex_static;
+    texture_2d_t tex_camera;
 } gles_ctx_t;
 
 
@@ -60,20 +55,20 @@ public:
     void InitGLES (void);
     void TerminateGLES (void);
     
-    void LoadInputTexture (input_tex_t *tex, char *fname);
+    void LoadInputTexture (texture_2d_t *tex, char *fname);
     void UpdateCameraTexture ();
-    void AdjustTexture (int win_w, int win_h, int texw, int texh,
-                        int *dx, int *dy, int *dw, int *dh);
+    void adjust_texture (int win_w, int win_h, int texw, int texh,
+                         int *dx, int *dy, int *dw, int *dh);
 
     void UpdateFrame (void);
     void RenderFrame (void);
 
-    void FeedInputImage (int texid, ssbo_t *ssbo, int win_w, int win_h);
+    void feed_posenet_image (texture_2d_t *srctex, ssbo_t *ssbo, int win_w, int win_h);
     void DrawTFLiteConfigInfo ();
 
     // Posenet Specific
-    void RenderPosenetResult (int x, int y, int w, int h, posenet_result_t *pose_ret);
-    void RenderBone (int ofstx, int ofsty, int drw_w, int drw_h,
+    void render_posenet_result (int x, int y, int w, int h, posenet_result_t *pose_ret);
+    void render_bone (int ofstx, int ofsty, int drw_w, int drw_h,
              posenet_result_t *pose_ret, int pid,
              enum pose_key_id id0, enum pose_key_id id1, float *col);
 

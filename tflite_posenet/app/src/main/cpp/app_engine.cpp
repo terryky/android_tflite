@@ -4,7 +4,6 @@
  * ------------------------------------------------ */
 #include <cstdio>
 #include <GLES2/gl2.h>
-#include "app_engine.h"
 #include "util_debug.h"
 #include "util_asset.h"
 #include "util_egl.h"
@@ -12,8 +11,303 @@
 #include "util_pmeter.h"
 #include "util_texture.h"
 #include "util_render2d.h"
+#include "tflite_posenet.h"
+#include "app_engine.h"
 
-#define MAX_BUF_COUNT 4
+#define UNUSED(x) (void)(x)
+
+
+
+
+
+/* resize image to DNN network input size and convert to fp32. */
+void
+AppEngine::feed_posenet_image(texture_2d_t *srctex, ssbo_t *ssbo, int win_w, int win_h)
+{
+#if defined (USE_INPUT_SSBO)
+    resize_texture_to_ssbo (srctex->texid, ssbo);
+#else
+    int x, y, w, h;
+#if defined (USE_QUANT_TFLITE_MODEL)
+    unsigned char *buf_u8 = (unsigned char *)get_posenet_input_buf (&w, &h);
+#else
+    float *buf_fp32 = (float *)get_posenet_input_buf (&w, &h);
+#endif
+    unsigned char *buf_ui8 = NULL;
+    static unsigned char *pui8 = NULL;
+
+    if (pui8 == NULL)
+        pui8 = (unsigned char *)malloc(w * h * 4);
+
+    buf_ui8 = pui8;
+
+    draw_2d_texture_ex (srctex, 0, win_h - h, w, h, 1);
+
+    glPixelStorei (GL_PACK_ALIGNMENT, 4);
+    glReadPixels (0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, buf_ui8);
+
+    /* convert UI8 [0, 255] ==> FP32 [0, 1] */
+    float mean =   0.0f;
+    float std  = 255.0f;
+    for (y = 0; y < h; y ++)
+    {
+        for (x = 0; x < w; x ++)
+        {
+            int r = *buf_ui8 ++;
+            int g = *buf_ui8 ++;
+            int b = *buf_ui8 ++;
+            buf_ui8 ++;          /* skip alpha */
+#if defined (USE_QUANT_TFLITE_MODEL)
+            *buf_u8 ++ = r;
+            *buf_u8 ++ = g;
+            *buf_u8 ++ = b;
+#else
+            *buf_fp32 ++ = (float)(r - mean) / std;
+            *buf_fp32 ++ = (float)(g - mean) / std;
+            *buf_fp32 ++ = (float)(b - mean) / std;
+#endif
+        }
+    }
+
+#endif
+    return;
+}
+
+
+/* render a bone of skelton. */
+void
+AppEngine::render_bone (int ofstx, int ofsty, int drw_w, int drw_h,
+                        posenet_result_t *pose_ret, int pid,
+                        enum pose_key_id id0, enum pose_key_id id1, float *col)
+{
+    float x0 = pose_ret->pose[pid].key[id0].x * drw_w + ofstx;
+    float y0 = pose_ret->pose[pid].key[id0].y * drw_h + ofsty;
+    float x1 = pose_ret->pose[pid].key[id1].x * drw_w + ofstx;
+    float y1 = pose_ret->pose[pid].key[id1].y * drw_h + ofsty;
+    float s0 = pose_ret->pose[pid].key[id0].score;
+    float s1 = pose_ret->pose[pid].key[id1].score;
+
+    /* if the confidence score is low, draw more transparently. */
+    col[3] = (s0 + s1) * 0.5f;
+    draw_2d_line (x0, y0, x1, y1, col, 5.0f);
+
+    col[3] = 1.0f;
+}
+
+void
+AppEngine::render_posenet_result (int x, int y, int w, int h, posenet_result_t *pose_ret)
+{
+    float col_red[]    = {1.0f, 0.0f, 0.0f, 1.0f};
+    float col_orange[] = {1.0f, 0.6f, 0.0f, 1.0f};
+    float col_cyan[]   = {0.0f, 1.0f, 1.0f, 1.0f};
+    float col_lime[]   = {0.0f, 1.0f, 0.3f, 1.0f};
+    float col_pink[]   = {1.0f, 0.0f, 1.0f, 1.0f};
+    float col_blue[]   = {0.0f, 0.5f, 1.0f, 1.0f};
+    
+    for (int i = 0; i < pose_ret->num; i ++)
+    {
+        /* draw skelton */
+
+        /* body */
+        render_bone (x, y, w, h, pose_ret, i, kLeftShoulder,  kRightShoulder, col_cyan);
+        render_bone (x, y, w, h, pose_ret, i, kLeftShoulder,  kLeftHip,       col_cyan);
+        render_bone (x, y, w, h, pose_ret, i, kRightShoulder, kRightHip,      col_cyan);
+        render_bone (x, y, w, h, pose_ret, i, kLeftHip,       kRightHip,      col_cyan);
+
+        /* legs */
+        render_bone (x, y, w, h, pose_ret, i, kLeftHip,       kLeftKnee,      col_pink);
+        render_bone (x, y, w, h, pose_ret, i, kLeftKnee,      kLeftAnkle,     col_pink);
+        render_bone (x, y, w, h, pose_ret, i, kRightHip,      kRightKnee,     col_blue);
+        render_bone (x, y, w, h, pose_ret, i, kRightKnee,     kRightAnkle,    col_blue);
+        
+        /* arms */
+        render_bone (x, y, w, h, pose_ret, i, kLeftShoulder,  kLeftElbow,     col_orange);
+        render_bone (x, y, w, h, pose_ret, i, kLeftElbow,     kLeftWrist,     col_orange);
+        render_bone (x, y, w, h, pose_ret, i, kRightShoulder, kRightElbow,    col_lime  );
+        render_bone (x, y, w, h, pose_ret, i, kRightElbow,    kRightWrist,    col_lime  );
+
+        /* draw key points */
+        for (int j = 0; j < kPoseKeyNum; j ++)
+        {
+            float keyx = pose_ret->pose[i].key[j].x * w + x;
+            float keyy = pose_ret->pose[i].key[j].y * h + y;
+            int r = 9;
+            draw_2d_fillrect (keyx - (r/2), keyy - (r/2), r, r, col_red);
+        }
+
+#if defined (USE_FIREBALL_PARTICLE)
+        {
+            float x0 = pose_ret->pose[i].key[kRightWrist].x * w + x;
+            float y0 = pose_ret->pose[i].key[kRightWrist].y * h + y;
+            float x1 = pose_ret->pose[i].key[kLeftWrist].x * w + x;
+            float y1 = pose_ret->pose[i].key[kLeftWrist].y * h + y;
+            render_posenet_particle (x0, y0, x1, y1);
+        }
+#endif
+    }
+
+#if defined (USE_FACE_MASK)
+    render_facemask (x, y, w, h, pose_ret);
+#endif
+}
+
+void
+AppEngine::DrawTFLiteConfigInfo ()
+{
+    char strbuf[512];
+    float col_pink[]  = {1.0f, 0.0f, 1.0f, 0.5f};
+    float col_white[] = {1.0f, 1.0f, 1.0f, 1.0f};
+    float *col_bg = col_pink;
+
+    if (glctx.tex_camera_valid)
+    {
+        sprintf (strbuf, "CAMERA ENABLED");
+    }
+    else
+    {
+        sprintf (strbuf, "CAMERA DISABLED");
+    }
+    draw_dbgstr_ex (strbuf, glctx.disp_w - 250, 0, 1.0f, col_white, col_bg);
+
+#if defined (USE_GPU_DELEGATEV2)
+    sprintf (strbuf, "GPU_DELEGATEV2: ON ");
+#else
+    sprintf (strbuf, "GPU_DELEGATEV2: OFF");
+#endif
+    draw_dbgstr_ex (strbuf, glctx.disp_w - 250, 24, 1.0f, col_white, col_bg);
+
+}
+
+
+/* Adjust the texture size to fit the window size
+ *
+ *                      Portrait
+ *     Landscape        +------+
+ *     +-+------+-+     +------+
+ *     | |      | |     |      |
+ *     | |      | |     |      |
+ *     +-+------+-+     +------+
+ *                      +------+
+ */
+void
+AppEngine::adjust_texture (int win_w, int win_h, int texw, int texh, 
+                           int *dx, int *dy, int *dw, int *dh)
+{
+    float win_aspect = (float)win_w / (float)win_h;
+    float tex_aspect = (float)texw  / (float)texh;
+    float scale;
+    float scaled_w, scaled_h;
+    float offset_x, offset_y;
+
+    if (win_aspect > tex_aspect)
+    {
+        scale = (float)win_h / (float)texh;
+        scaled_w = scale * texw;
+        scaled_h = scale * texh;
+        offset_x = (win_w - scaled_w) * 0.5f;
+        offset_y = 0;
+    }
+    else
+    {
+        scale = (float)win_w / (float)texw;
+        scaled_w = scale * texw;
+        scaled_h = scale * texh;
+        offset_x = 0;
+        offset_y = (win_h - scaled_h) * 0.5f;
+    }
+
+    *dx = (int)offset_x;
+    *dy = (int)offset_y;
+    *dw = (int)scaled_w;
+    *dh = (int)scaled_h;
+}
+
+
+
+
+
+void 
+AppEngine::RenderFrame ()
+{
+    texture_2d_t captex;
+
+    if (glctx.tex_camera_valid)
+        captex = glctx.tex_camera;
+    else
+        captex = glctx.tex_static;
+
+    int win_w  = glctx.disp_w;
+    int win_h  = glctx.disp_h;
+    ssbo_t *ssbo = NULL;
+    static double ttime[10] = {0}, interval, invoke_ms;
+
+    int draw_x, draw_y, draw_w, draw_h;
+	int texw = captex.width;
+	int texh = captex.height;
+    adjust_texture (win_w, win_h, texw, texh, &draw_x, &draw_y, &draw_w, &draw_h);
+
+    glClearColor (0.f, 0.f, 0.f, 1.0f);
+
+    /* --------------------------------------- *
+     *  Render Loop
+     * --------------------------------------- */
+    int count = glctx.frame_count;
+    {
+        posenet_result_t pose_ret = {};
+        char strbuf[512];
+
+        PMETER_RESET_LAP ();
+        PMETER_SET_LAP ();
+
+        ttime[1] = pmeter_get_time_ms ();
+        interval = (count > 0) ? ttime[1] - ttime[0] : 0;
+        ttime[0] = ttime[1];
+
+        glClear (GL_COLOR_BUFFER_BIT);
+
+        /* --------------------------------------- *
+         *  pose estimation
+         * --------------------------------------- */
+        feed_posenet_image (&captex, ssbo, win_w, win_h);
+
+        ttime[2] = pmeter_get_time_ms ();
+        invoke_posenet (&pose_ret);
+        ttime[3] = pmeter_get_time_ms ();
+        invoke_ms = ttime[3] - ttime[2];
+
+        /* --------------------------------------- *
+         *  render scene
+         * --------------------------------------- */
+        glClear (GL_COLOR_BUFFER_BIT);
+
+#if defined (USE_INPUT_SSBO) /* for Debug. */
+        /* visualize the contents of SSBO for input tensor. */
+        visualize_ssbo (ssbo);
+#endif
+        /* visualize the object detection results. */
+        draw_2d_texture_ex (&captex, draw_x, draw_y, draw_w, draw_h, 0);
+        render_posenet_result (draw_x, draw_y, draw_w, draw_h, &pose_ret);
+
+        /* --------------------------------------- *
+         *  post process
+         * --------------------------------------- */
+        DrawTFLiteConfigInfo ();
+
+        draw_pmeter (0, 40);
+
+        sprintf (strbuf, "Interval:%5.1f [ms]\nTFLite  :%5.1f [ms]", interval, invoke_ms);
+        draw_dbgstr (strbuf, 10, 10);
+
+        /* renderer info */
+		int y = 10 + 22 * 2;
+        draw_dbgstr (glctx.str_glverstion, 10, y); y += 22;
+        draw_dbgstr (glctx.str_glvendor,   10, y); y += 22;
+        draw_dbgstr (glctx.str_glrender,   10, y); y += 22;
+
+        egl_swap();
+    }
+    glctx.frame_count ++;
+}
 
 
 AppEngine::AppEngine (android_app* app)
@@ -59,347 +353,14 @@ AppEngine::AndroidApp (void) const
  *  OpenGLES Render Functions
  * ---------------------------------------------------------------------------- */
 void
-AppEngine::LoadInputTexture (input_tex_t *tex, char *fname)
+AppEngine::LoadInputTexture (texture_2d_t *tex, char *fname)
 {
-    int32_t dsp_w = glctx.disp_w;
-    int32_t dsp_h = glctx.disp_h;
-    int32_t img_w, img_h, drw_x, drw_y, drw_w, drw_h;
-    uint8_t *img_buf;
-    GLuint texid;
+    int32_t img_w, img_h;
+    uint8_t *img_buf = asset_read_image (AndroidApp()->activity->assetManager, fname, &img_w, &img_h);
 
-    img_buf = asset_read_image (AndroidApp()->activity->assetManager, fname, &img_w, &img_h);
-    texid = create_2d_texture ((void *)img_buf, img_w, img_h);
+    create_2d_texture_ex (tex, img_buf, img_w, img_h, pixfmt_fourcc('R', 'G', 'B', 'A'));
     asset_free_image (img_buf);
-
-    AdjustTexture (dsp_w, dsp_h, img_w, img_h, &drw_x, &drw_y, &drw_w, &drw_h);
-
-    tex->w = img_w;
-    tex->h = img_h;
-    tex->texid = texid;
-    tex->draw_x = drw_x;
-    tex->draw_y = drw_y;
-    tex->draw_w = drw_w;
-    tex->draw_h = drw_h;
 }
-
-
-/* Adjust the texture size to fit the window size
- *
- *                      Portrait
- *     Landscape        +------+
- *     +-+------+-+     +------+
- *     | |      | |     |      |
- *     | |      | |     |      |
- *     +-+------+-+     +------+
- *                      +------+
- */
-void
-AppEngine::AdjustTexture (int win_w, int win_h, int texw, int texh,
-                          int *dx, int *dy, int *dw, int *dh)
-{
-    float win_aspect = (float)win_w / (float)win_h;
-    float tex_aspect = (float)texw  / (float)texh;
-    float scale;
-    float scaled_w, scaled_h;
-    float offset_x, offset_y;
-
-    if (win_aspect > tex_aspect)
-    {
-        scale = (float)win_h / (float)texh;
-        scaled_w = scale * texw;
-        scaled_h = scale * texh;
-        offset_x = (win_w - scaled_w) * 0.5f;
-        offset_y = 0;
-    }
-    else
-    {
-        scale = (float)win_w / (float)texw;
-        scaled_w = scale * texw;
-        scaled_h = scale * texh;
-        offset_x = 0;
-        offset_y = (win_h - scaled_h) * 0.5f;
-    }
-
-    *dx = (int)offset_x;
-    *dy = (int)offset_y;
-    *dw = (int)scaled_w;
-    *dh = (int)scaled_h;
-}
-
-
-/* resize image to DNN network input size and convert to fp32. */
-void
-AppEngine::FeedInputImage (int texid, ssbo_t *ssbo, int win_w, int win_h)
-{
-#if defined (USE_INPUT_SSBO)
-    resize_texture_to_ssbo (texid, ssbo);
-#else
-    int x, y, w, h;
-#if defined (USE_QUANT_TFLITE_MODEL)
-    unsigned char *buf_u8 = (unsigned char *)get_posenet_input_buf (&w, &h);
-#else
-    float *buf_fp32 = (float *)get_posenet_input_buf (&w, &h);
-#endif
-    unsigned char *buf_ui8, *pui8;
-
-    pui8 = buf_ui8 = (unsigned char *)malloc(w * h * 4);
-
-    draw_2d_texture (texid, 0, win_h - h, w, h, 1);
-
-    glPixelStorei (GL_PACK_ALIGNMENT, 1);
-    glReadPixels (0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, buf_ui8);
-
-    /* convert UI8 [0, 255] ==> FP32 [-1, 1] */
-    float mean = 128.0f;
-    float std  = 128.0f;
-    for (y = 0; y < h; y ++)
-    {
-        for (x = 0; x < w; x ++)
-        {
-            int r = *buf_ui8 ++;
-            int g = *buf_ui8 ++;
-            int b = *buf_ui8 ++;
-            buf_ui8 ++;          /* skip alpha */
-#if defined (USE_QUANT_TFLITE_MODEL)
-            *buf_u8 ++ = r;
-            *buf_u8 ++ = g;
-            *buf_u8 ++ = b;
-#else
-            *buf_fp32 ++ = (float)(r - mean) / std;
-            *buf_fp32 ++ = (float)(g - mean) / std;
-            *buf_fp32 ++ = (float)(b - mean) / std;
-#endif
-        }
-    }
-
-    free (pui8);
-#endif
-    return;
-}
-
-
-/* render a bone of skelton. */
-void
-AppEngine::RenderBone (int ofstx, int ofsty, int drw_w, int drw_h,
-                       posenet_result_t *pose_ret, int pid,
-                       enum pose_key_id id0, enum pose_key_id id1, float *col)
-{
-    float x0 = pose_ret->pose[pid].key[id0].x * drw_w + ofstx;
-    float y0 = pose_ret->pose[pid].key[id0].y * drw_h + ofsty;
-    float x1 = pose_ret->pose[pid].key[id1].x * drw_w + ofstx;
-    float y1 = pose_ret->pose[pid].key[id1].y * drw_h + ofsty;
-    float s0 = pose_ret->pose[pid].key[id0].score;
-    float s1 = pose_ret->pose[pid].key[id1].score;
-
-    /* if the confidence score is low, draw more transparently. */
-    col[3] = (s0 + s1) * 0.5f;
-    draw_2d_line (x0, y0, x1, y1, col, 5.0f);
-
-    col[3] = 1.0f;
-}
-
-void
-AppEngine::RenderPosenetResult (int x, int y, int w, int h, posenet_result_t *pose_ret)
-{
-    float col_red[]    = {1.0f, 0.0f, 0.0f, 1.0f};
-    float col_orange[] = {1.0f, 0.6f, 0.0f, 1.0f};
-    float col_cyan[]   = {0.0f, 1.0f, 1.0f, 1.0f};
-    float col_lime[]   = {0.0f, 1.0f, 0.3f, 1.0f};
-    float col_pink[]   = {1.0f, 0.0f, 1.0f, 1.0f};
-    float col_blue[]   = {0.0f, 0.5f, 1.0f, 1.0f};
-    
-    for (int i = 0; i < pose_ret->num; i ++)
-    {
-        /* draw skelton */
-
-        /* body */
-        RenderBone (x, y, w, h, pose_ret, i, kLeftShoulder,  kRightShoulder, col_cyan);
-        RenderBone (x, y, w, h, pose_ret, i, kLeftShoulder,  kLeftHip,       col_cyan);
-        RenderBone (x, y, w, h, pose_ret, i, kRightShoulder, kRightHip,      col_cyan);
-        RenderBone (x, y, w, h, pose_ret, i, kLeftHip,       kRightHip,      col_cyan);
-
-        /* legs */
-        RenderBone (x, y, w, h, pose_ret, i, kLeftHip,       kLeftKnee,      col_pink);
-        RenderBone (x, y, w, h, pose_ret, i, kLeftKnee,      kLeftAnkle,     col_pink);
-        RenderBone (x, y, w, h, pose_ret, i, kRightHip,      kRightKnee,     col_blue);
-        RenderBone (x, y, w, h, pose_ret, i, kRightKnee,     kRightAnkle,    col_blue);
-        
-        /* arms */
-        RenderBone (x, y, w, h, pose_ret, i, kLeftShoulder,  kLeftElbow,     col_orange);
-        RenderBone (x, y, w, h, pose_ret, i, kLeftElbow,     kLeftWrist,     col_orange);
-        RenderBone (x, y, w, h, pose_ret, i, kRightShoulder, kRightElbow,    col_lime  );
-        RenderBone (x, y, w, h, pose_ret, i, kRightElbow,    kRightWrist,    col_lime  );
-
-        /* draw key points */
-        for (int j = 0; j < kPoseKeyNum; j ++)
-        {
-            float keyx = pose_ret->pose[i].key[j].x * w + x;
-            float keyy = pose_ret->pose[i].key[j].y * h + y;
-            int r = 9;
-            draw_2d_fillrect (keyx - (r/2), keyy - (r/2), r, r, col_red);
-        }
-
-#if defined (USE_FIREBALL_PARTICLE)
-        {
-            float x0 = pose_ret->pose[i].key[kRightWrist].x * w + x;
-            float y0 = pose_ret->pose[i].key[kRightWrist].y * h + y;
-            float x1 = pose_ret->pose[i].key[kLeftWrist].x * w + x;
-            float y1 = pose_ret->pose[i].key[kLeftWrist].y * h + y;
-            render_posenet_particle (x0, y0, x1, y1);
-        }
-#endif
-    }
-
-#if defined (USE_FACE_MASK)
-    render_facemask (x, y, w, h, pose_ret);
-#endif
-}
-
-
-void
-AppEngine::DrawTFLiteConfigInfo ()
-{
-    char strbuf[512];
-    float col_pink[]  = {1.0f, 0.0f, 1.0f, 0.5f};
-    float col_white[] = {1.0f, 1.0f, 1.0f, 1.0f};
-    float *col_bg = col_pink;
-
-    if (glctx.tex_camera_valid)
-    {
-        sprintf (strbuf, "CAMERA ENABLED");
-    }
-    else
-    {
-        sprintf (strbuf, "CAMERA DISABLED");
-    }
-    draw_dbgstr_ex (strbuf, glctx.disp_w - 250, 0, 1.0f, col_white, col_bg);
-
-#if defined (USE_GPU_DELEGATEV2)
-    sprintf (strbuf, "GPU_DELEGATEV2: ON ");
-#else
-    sprintf (strbuf, "GPU_DELEGATEV2: OFF");
-#endif
-    draw_dbgstr_ex (strbuf, glctx.disp_w - 250, 24, 1.0f, col_white, col_bg);
-
-#if defined (USE_QUANT_TFLITE_MODEL)
-    sprintf (strbuf, "MODEL_INTQUANT: ON ");
-    draw_dbgstr_ex (strbuf, glctx.disp_w - 250, 48, 1.0f, col_white, col_bg);
-#endif
-}
-
-
-void 
-AppEngine::RenderFrame ()
-{
-    input_tex_t *input_tex;
-
-    if (glctx.tex_camera_valid)
-        input_tex = &glctx.tex_camera;
-    else
-        input_tex = &glctx.tex_static;
-
-    GLuint texid = input_tex->texid;
-    int draw_x = input_tex->draw_x;
-    int draw_y = input_tex->draw_y;
-    int draw_w = input_tex->draw_w;
-    int draw_h = input_tex->draw_h;
-    int win_w  = glctx.disp_w;
-    int win_h  = glctx.disp_h;
-    ssbo_t *ssbo = NULL;
-    static double ttime[10] = {0}, interval, invoke_ms;
-
-    glClearColor (0.f, 0.f, 0.f, 1.0f);
-
-    int count = glctx.frame_count;
-    {
-        posenet_result_t pose_ret = {};
-        char strbuf[512];
-
-        PMETER_RESET_LAP ();
-        PMETER_SET_LAP ();
-
-        ttime[1] = pmeter_get_time_ms ();
-        interval = (count > 0) ? ttime[1] - ttime[0] : 0;
-        ttime[0] = ttime[1];
-
-        glClear (GL_COLOR_BUFFER_BIT);
-
-        FeedInputImage (texid, ssbo, win_w, win_h);
-
-        /* invoke pose estimation using TensorflowLite */
-        ttime[2] = pmeter_get_time_ms ();
-        invoke_posenet (&pose_ret);
-        ttime[3] = pmeter_get_time_ms ();
-        invoke_ms = ttime[3] - ttime[2];
-
-        glClear (GL_COLOR_BUFFER_BIT);
-
-#if defined (USE_INPUT_SSBO) /* for Debug. */
-        /* visualize the contents of SSBO for input tensor. */
-        visualize_ssbo (ssbo);
-#endif
-        /* visualize the object detection results. */
-        draw_2d_texture (texid,  draw_x, draw_y, draw_w, draw_h, 0);
-        RenderPosenetResult (draw_x, draw_y, draw_w, draw_h, &pose_ret);
-
-        DrawTFLiteConfigInfo ();
-
-        /* renderer info */
-        draw_dbgstr (glctx.str_glverstion, 10, 0);
-        draw_dbgstr (glctx.str_glvendor,   10, 22);
-        draw_dbgstr (glctx.str_glrender,   10, 44);
-
-        draw_pmeter (0, 100);
-
-        sprintf (strbuf, "Interval:%5.1f [ms]\nTFLite  :%5.1f [ms]", interval, invoke_ms);
-        draw_dbgstr (strbuf, 10, 80);
-
-        egl_swap();
-    }
-    glctx.frame_count ++;
-}
-
-
-void
-AppEngine::UpdateCameraTexture ()
-{
-    input_tex_t *input_tex = &glctx.tex_camera;
-    GLuint texid = input_tex->texid;
-    int    cap_w, cap_h;
-    void   *cap_buf;
-
-    GetAppEngine()->AcquireCameraFrame (&cap_buf, &cap_w, &cap_h);
-
-    if (cap_buf == NULL)
-        return;
-
-    if (texid == 0)
-    {
-        int32_t dsp_w = glctx.disp_w;
-        int32_t dsp_h = glctx.disp_h;
-        int32_t drw_x, drw_y, drw_w, drw_h;
-
-        texid = create_2d_texture (cap_buf, cap_w, cap_h);
-
-        AdjustTexture (dsp_w, dsp_h, cap_w, cap_h, &drw_x, &drw_y, &drw_w, &drw_h);
-
-        input_tex->w      = cap_w;
-        input_tex->h      = cap_h;
-        input_tex->texid  = texid;
-        input_tex->draw_x = drw_x;
-        input_tex->draw_y = drw_y;
-        input_tex->draw_w = drw_w;
-        input_tex->draw_h = drw_h;
-    }
-    else
-    {
-        glBindTexture (GL_TEXTURE_2D, texid);
-        glTexSubImage2D (GL_TEXTURE_2D, 0, 0, 0, cap_w, cap_h, GL_RGBA, GL_UNSIGNED_BYTE, cap_buf);
-    }
-
-    glctx.tex_camera_valid = true;
-}
-
 
 void 
 AppEngine::InitGLES (void)
@@ -458,6 +419,8 @@ AppEngine::UpdateFrame (void)
 /* ---------------------------------------------------------------------------- *
  *  Manage NDKCamera Functions
  * ---------------------------------------------------------------------------- */
+#define MAX_BUF_COUNT 4
+
 void 
 AppEngine::InitCamera (void)
 {
@@ -511,7 +474,31 @@ AppEngine::CreateCamera(void)
     m_camera->StartPreview (true);
 }
 
+void
+AppEngine::UpdateCameraTexture ()
+{
+    texture_2d_t *input_tex = &glctx.tex_camera;
+    GLuint texid = input_tex->texid;
+    int    cap_w, cap_h;
+    void   *cap_buf;
 
+    GetAppEngine()->AcquireCameraFrame (&cap_buf, &cap_w, &cap_h);
+
+    if (cap_buf == NULL)
+        return;
+
+    if (texid == 0)
+    {
+        create_2d_texture_ex (input_tex, cap_buf, cap_w, cap_h, pixfmt_fourcc('R', 'G', 'B', 'A'));
+    }
+    else
+    {
+        glBindTexture (GL_TEXTURE_2D, texid);
+        glTexSubImage2D (GL_TEXTURE_2D, 0, 0, 0, cap_w, cap_h, GL_RGBA, GL_UNSIGNED_BYTE, cap_buf);
+    }
+
+    glctx.tex_camera_valid = true;
+}
 
 
 
