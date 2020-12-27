@@ -100,6 +100,7 @@ add_library(native-activity SHARED
         ${commonDir}/util_render2d.c
         ${commonDir}/util_debugstr.c
         ${commonDir}/util_pmeter.c
+        ${commonDir}/util_tflite.cpp
         ${commonDir}/winsys/winsys_null.c)
 
 

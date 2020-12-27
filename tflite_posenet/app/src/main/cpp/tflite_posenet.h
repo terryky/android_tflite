@@ -65,7 +65,7 @@ typedef struct _posenet_result_t
 
 
 
-int   init_tflite_posenet(ssbo_t *ssbo, const char *model_buf, size_t model_size);
+int   init_tflite_posenet (ssbo_t *ssbo, const char *model_buf, size_t model_size);
 void  *get_posenet_input_buf (int *w, int *h);
 
 int invoke_posenet (posenet_result_t *pose_result);
