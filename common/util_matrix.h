@@ -27,6 +27,8 @@ void matrix_identity (float *m);
 void matrix_perspective (float *m, float depth);
 void matrix_projectto2d (float *m);
 
+void matrix_modellookat (float *m, float *src_pos, float *tgt_pos, float twist);
+
 int  matrix_isidentity (float *m);
 int  matrix_is2d (float *m);
 int  matrix_is2d_scale_trans (float *m);
@@ -43,6 +45,9 @@ void matrix_proj_ortho ( float *mat, float left, float right, float bottom, floa
 
 void matrix_transpose (float *m);
 void matrix_invert (float *m);
+
+float vec3_length (float *v);
+float vec3_normalize (float *v);
 
 void quaternion_mult(float *lpR, float *lpP, float *lpQ);
 void quaternion_to_matrix(float *lpM, float *lpQ);
