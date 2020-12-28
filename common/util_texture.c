@@ -8,10 +8,8 @@
 #include "util_texture.h"
 #include "assertgl.h"
 
-#if defined (USE_STB_IMAGE)
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb/stb_image.h>
-#endif
 
 #if defined (USE_INPUT_CAMERA_CAPTURE)
 #include "util_camera_capture.h"
@@ -91,7 +89,7 @@ create_2d_texture_ex (texture_2d_t *tex2d, void *imgbuf, int width, int height, 
     return 0;
 }
 
-#if defined (USE_STB_IMAGE)
+
 int
 load_png_texture (char *name, int *lpTexID, int *lpWidth, int *lpHeight)
 {
@@ -198,7 +196,7 @@ load_png_cube_texture (char *name[], int *lpTexID)
     GLASSERT();
     return 0;
 }
-#endif /* USE_STB_IMAGE */
+
 
 
 

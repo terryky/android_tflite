@@ -7,7 +7,7 @@
 #include <android/asset_manager.h>
 #include "util_asset.h"
 
-#define STB_IMAGE_IMPLEMENTATION
+//#define STB_IMAGE_IMPLEMENTATION
 #include <stb/stb_image.h>
 
 
@@ -36,10 +36,13 @@ asset_read_image (AAssetManager *assetMgr, char *fname, int32_t *img_w, int32_t 
 {
     int32_t  width, height, channel_count;
     uint8_t* img_buf;
+    bool     ret;
 
     /* read asset file */
     std::vector<uint8_t> read_buf;
-    asset_read_file (assetMgr, fname, read_buf);
+    ret = asset_read_file (assetMgr, fname, read_buf);
+    if (ret != true)
+        return nullptr;
 
     /* decode image data to RGBA8888 */
     img_buf = stbi_load_from_memory (read_buf.data(), read_buf.size(),
