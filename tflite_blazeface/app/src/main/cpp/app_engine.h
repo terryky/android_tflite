@@ -12,6 +12,7 @@
 #include <GLES2/gl2.h>
 
 #include "camera_manager.h"
+#include "render_imgui.h"
 #include "tflite_blazeface.h"
 
 typedef struct input_tex {
@@ -33,6 +34,8 @@ typedef struct gles_ctx {
     bool tex_camera_valid;
     input_tex_t tex_static;
     input_tex_t tex_camera;
+
+    imgui_data_t imgui_data;
 } gles_ctx_t;
 
 
@@ -69,7 +72,8 @@ public:
     void RenderFrame (void);
 
     void DrawTFLiteConfigInfo ();
-
+    void setup_imgui (int win_w, int win_h, imgui_data_t *imgui_data);
+    
     // Style Transfer Specific
     void FeedInputImageUI8  (int texid, int win_w, int win_h);
     void FeedInputImageFP32 (int texid, int win_w, int win_h);

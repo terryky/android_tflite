@@ -2,34 +2,18 @@
  * The MIT License (MIT)
  * Copyright (c) 2020 terryky1220@gmail.com
  * ------------------------------------------------ */
-#include "tensorflow/lite/kernels/register.h"
-#include "tensorflow/lite/model.h"
-#include "tensorflow/lite/optional_debug_tools.h"
-
-#if defined (USE_GPU_DELEGATEV2)
-#include "tensorflow/lite/delegates/gpu/delegate.h"
-#endif
-
-#include <list>
+#include "util_tflite.h"
 #include "tflite_blazeface.h"
 #include "util_debug.h"
-#include <float.h>
+#include <list>
 
-using namespace std;
-using namespace tflite;
 
-unique_ptr<FlatBufferModel> model;
-unique_ptr<Interpreter> interpreter;
-ops::builtin::BuiltinOpResolver resolver;
+static tflite_interpreter_t s_detect_interpreter;
+static tflite_tensor_t      s_detect_tensor_input;
+static tflite_tensor_t      s_detect_tensor_scores;
+static tflite_tensor_t      s_detect_tensor_bboxes;
 
-static float   *in_ptr;
-static float   *scores_ptr;
-static float   *bboxes_ptr;
-
-static int     s_img_w = 0;
-static int     s_img_h = 0;
 static std::list<fvec2> s_anchors;
-
 
 /*
  * determine where the anchor points are scatterd.
@@ -70,82 +54,25 @@ create_blazeface_anchors(int input_w, int input_h)
 }
 
 
+
+/* -------------------------------------------------- *
+ *  Create TFLite Interpreter
+ * -------------------------------------------------- */
 int
-init_tflite_blazeface(const char *model_buf, size_t model_size)
+init_tflite_blazeface(const char *model_buf, size_t model_size, blazeface_config_t *config)
 {
-    model = FlatBufferModel::BuildFromBuffer (model_buf, model_size);
-    if (!model)
-    {
-        DBG_LOGE ("ERR: %s(%d)\n", __FILE__, __LINE__);
-        return -1;
-    }
+    /* Face detect */
+	tflite_create_interpreter (&s_detect_interpreter, model_buf, model_size);
+    tflite_get_tensor_by_name (&s_detect_interpreter, 0, "input",          &s_detect_tensor_input);
+    tflite_get_tensor_by_name (&s_detect_interpreter, 1, "regressors",     &s_detect_tensor_bboxes);
+    tflite_get_tensor_by_name (&s_detect_interpreter, 1, "classificators", &s_detect_tensor_scores);
 
-    InterpreterBuilder(*model, resolver)(&interpreter);
-    if (!interpreter)
-    {
-        DBG_LOGE ("ERR: %s(%d)\n", __FILE__, __LINE__);
-        return -2;
-    }
+    int det_input_w = s_detect_tensor_input.dims[2];
+    int det_input_h = s_detect_tensor_input.dims[1];
+    create_blazeface_anchors (det_input_w, det_input_h);
 
-#if defined (USE_GPU_DELEGATEV2)
-    const TfLiteGpuDelegateOptionsV2 options = {
-        .is_precision_loss_allowed = 1, // FP16
-        .inference_preference = TFLITE_GPU_INFERENCE_PREFERENCE_FAST_SINGLE_ANSWER,
-        .inference_priority1 = TFLITE_GPU_INFERENCE_PRIORITY_MIN_LATENCY,
-        .inference_priority2 = TFLITE_GPU_INFERENCE_PRIORITY_AUTO,
-        .inference_priority3 = TFLITE_GPU_INFERENCE_PRIORITY_AUTO,
-    };
-    auto* delegate = TfLiteGpuDelegateV2Create(&options);
-    if (interpreter->ModifyGraphWithDelegate(delegate) != kTfLiteOk)
-    {
-        fprintf (stderr, "ERR: %s(%d)\n", __FILE__, __LINE__);
-        return -1;
-    }
-#endif
-
-    interpreter->SetNumThreads(4);
-    if (interpreter->AllocateTensors() != kTfLiteOk)
-    {
-        DBG_LOGE ("ERR: %s(%d)\n", __FILE__, __LINE__);
-        return -3;
-    }
-
-    in_ptr     = interpreter->typed_input_tensor<float>(0);
-    bboxes_ptr = interpreter->typed_output_tensor<float>(0);
-    scores_ptr = interpreter->typed_output_tensor<float>(1);
-
-    /* input image dimention */
-    int input_idx = interpreter->inputs()[0];
-    TfLiteIntArray *dim = interpreter->tensor(input_idx)->dims;
-    s_img_w = dim->data[2];
-    s_img_h = dim->data[1];
-    DBG_LOGI ("input image size: (%d, %d)\n", s_img_w, s_img_h);
-
-    /* scores dimention */
-    int scores_idx = interpreter->outputs()[0];
-    TfLiteIntArray *rgr_dim = interpreter->tensor(scores_idx)->dims;
-    int r0 = rgr_dim->data[0];
-    int r1 = rgr_dim->data[1];
-    int r2 = rgr_dim->data[2];
-    DBG_LOGI ("scores dim    : (%dx%dx%d)\n", r0, r1, r2);
-
-    /* classificators dimention */
-    int bboxes_idx = interpreter->outputs()[1];
-    TfLiteIntArray *cls_dim = interpreter->tensor(bboxes_idx)->dims;
-    int c0 = cls_dim->data[0];
-    int c1 = cls_dim->data[1];
-    int c2 = cls_dim->data[2];
-    DBG_LOGI ("bboxes dim    : (%dx%dx%d)\n", c0, c1, c2);
-
-    int anchor_num = create_blazeface_anchors (s_img_w, s_img_h);
-    DBG_LOGI ("anchors num   : %d\n", anchor_num);
-
-    if (anchor_num != c1)
-    {
-        DBG_LOGE ("ERR: %s(%d): anchor num doesn't much (%d != %d)\n",
-                    __FILE__, __LINE__, anchor_num, c1);
-        return -1;
-    }
+    config->score_thresh = 0.75f;
+    config->iou_thresh   = 0.3f;
 
     return 0;
 }
@@ -153,24 +80,29 @@ init_tflite_blazeface(const char *model_buf, size_t model_size)
 void *
 get_blazeface_input_buf (int *w, int *h)
 {
-    *w = s_img_w;
-    *h = s_img_h;
-    return in_ptr;
+    *w = s_detect_tensor_input.dims[2];
+    *h = s_detect_tensor_input.dims[1];
+    return s_detect_tensor_input.ptr;
 }
 
 
+/* -------------------------------------------------- *
+ * Invoke TensorFlow Lite (Face detection)
+ * -------------------------------------------------- */
 static float *
 get_bbox_ptr (int anchor_idx)
 {
     int idx = 16 * anchor_idx;
+    float *bboxes_ptr = (float *)s_detect_tensor_bboxes.ptr;
+
     return &bboxes_ptr[idx];
 }
 
-
 static int
-decode_bounds (std::list<face_t> &face_list, float score_thresh)
+decode_bounds (std::list<face_t> &face_list, float score_thresh, int input_img_w, int input_img_h)
 {
     face_t face_item;
+    float  *scores_ptr = (float *)s_detect_tensor_scores.ptr;
 
     int i = 0;
     for (auto itr = s_anchors.begin(); itr != s_anchors.end(); i ++, itr ++)
@@ -192,10 +124,10 @@ decode_bounds (std::list<face_t> &face_list, float score_thresh)
             float cx = sx + anchor.x;
             float cy = sy + anchor.y;
 
-            cx /= (float)s_img_w;
-            cy /= (float)s_img_h;
-            w  /= (float)s_img_w;
-            h  /= (float)s_img_h;
+            cx /= (float)input_img_w;
+            cy /= (float)input_img_h;
+            w  /= (float)input_img_w;
+            h  /= (float)input_img_h;
 
             fvec2 topleft, btmright;
             topleft.x  = cx - w * 0.5f;
@@ -214,8 +146,8 @@ decode_bounds (std::list<face_t> &face_list, float score_thresh)
                 float ly = p[4 + (2 * j) + 1];
                 lx += anchor.x;
                 ly += anchor.y;
-                lx /= (float)s_img_w;
-                ly /= (float)s_img_h;
+                lx /= (float)input_img_w;
+                ly /= (float)input_img_h;
 
                 face_item.keys[j].x = lx;
                 face_item.keys[j].y = ly;
@@ -226,7 +158,6 @@ decode_bounds (std::list<face_t> &face_list, float score_thresh)
     }
     return 0;
 }
-
 
 /* -------------------------------------------------- *
  *  Apply NonMaxSuppression:
@@ -244,27 +175,27 @@ calc_intersection_over_union (face_t &face0, face_t &face1)
     float ex1 = face1.btmright.x;
     float ey1 = face1.btmright.y;
     
-    float xmin0 = min (sx0, ex0);
-    float ymin0 = min (sy0, ey0);
-    float xmax0 = max (sx0, ex0);
-    float ymax0 = max (sy0, ey0);
-    float xmin1 = min (sx1, ex1);
-    float ymin1 = min (sy1, ey1);
-    float xmax1 = max (sx1, ex1);
-    float ymax1 = max (sy1, ey1);
+    float xmin0 = std::min (sx0, ex0);
+    float ymin0 = std::min (sy0, ey0);
+    float xmax0 = std::max (sx0, ex0);
+    float ymax0 = std::max (sy0, ey0);
+    float xmin1 = std::min (sx1, ex1);
+    float ymin1 = std::min (sy1, ey1);
+    float xmax1 = std::max (sx1, ex1);
+    float ymax1 = std::max (sy1, ey1);
     
     float area0 = (ymax0 - ymin0) * (xmax0 - xmin0);
     float area1 = (ymax1 - ymin1) * (xmax1 - xmin1);
     if (area0 <= 0 || area1 <= 0)
         return 0.0f;
 
-    float intersect_xmin = max (xmin0, xmin1);
-    float intersect_ymin = max (ymin0, ymin1);
-    float intersect_xmax = min (xmax0, xmax1);
-    float intersect_ymax = min (ymax0, ymax1);
+    float intersect_xmin = std::max (xmin0, xmin1);
+    float intersect_ymin = std::max (ymin0, ymin1);
+    float intersect_xmax = std::min (xmax0, xmax1);
+    float intersect_ymax = std::min (ymax0, ymax1);
 
-    float intersect_area = max (intersect_ymax - intersect_ymin, 0.0f) *
-                           max (intersect_xmax - intersect_xmin, 0.0f);
+    float intersect_area = std::max (intersect_ymax - intersect_ymin, 0.0f) *
+                           std::max (intersect_xmax - intersect_xmin, 0.0f);
     
     return intersect_area / (area0 + area1 - intersect_area);
 }
@@ -332,23 +263,25 @@ pack_face_result (blazeface_result_t *face_result, std::list<face_t> &face_list)
  * Invoke TensorFlow Lite
  * -------------------------------------------------- */
 int
-invoke_blazeface (blazeface_result_t *face_result)
+invoke_blazeface (blazeface_result_t *face_result, blazeface_config_t *config)
 {
-    if (interpreter->Invoke() != kTfLiteOk)
+    if (s_detect_interpreter.interpreter->Invoke() != kTfLiteOk)
     {
         DBG_LOGE ("ERR: %s(%d)\n", __FILE__, __LINE__);
         return -1;
     }
 
     /* decode boundary box and landmark keypoints */
-    float score_thresh = 0.5f;//0.75f;
+    float score_thresh = config->score_thresh;
     std::list<face_t> face_list;
 
-    decode_bounds (face_list, score_thresh);
+    int input_img_w = s_detect_tensor_input.dims[2];
+    int input_img_h = s_detect_tensor_input.dims[1];
+    decode_bounds (face_list, score_thresh, input_img_w, input_img_h);
 
 
 #if 1 /* USE NMS */
-    float iou_thresh = 0.3f;
+    float iou_thresh = config->iou_thresh;
     std::list<face_t> face_nms_list;
 
     non_max_suppression (face_list, face_nms_list, iou_thresh);

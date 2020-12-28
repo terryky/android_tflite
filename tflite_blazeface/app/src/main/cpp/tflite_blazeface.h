@@ -44,12 +44,16 @@ typedef struct _blazeface_result_t
     face_t faces[MAX_FACE_NUM];
 } blazeface_result_t;
 
+typedef struct _blazeface_config_t
+{
+    float score_thresh;
+    float iou_thresh;
+} blazeface_config_t;
 
-
-int init_tflite_blazeface (const char *model_buf, size_t model_size);
+int init_tflite_blazeface (const char *model_buf, size_t model_size, blazeface_config_t *config);
 void  *get_blazeface_input_buf (int *w, int *h);
 
-int invoke_blazeface (blazeface_result_t *blazeface_result);
+int invoke_blazeface (blazeface_result_t *blazeface_result, blazeface_config_t *config);
     
 #ifdef __cplusplus
 }

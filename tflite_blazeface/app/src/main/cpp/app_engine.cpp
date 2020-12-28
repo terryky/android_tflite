@@ -279,6 +279,22 @@ AppEngine::DrawTFLiteConfigInfo ()
 #endif
 }
 
+void
+AppEngine::setup_imgui (int win_w, int win_h, imgui_data_t *imgui_data)
+{
+#if 0
+    egl_set_motion_func (mousemove_cb);
+    egl_set_button_func (button_cb);
+    egl_set_key_func    (keyboard_cb);
+
+    init_imgui (win_w, win_h);
+#endif
+
+    imgui_data->frame_color[0] = 1.0f;
+    imgui_data->frame_color[1] = 0.0f;
+    imgui_data->frame_color[2] = 0.0f;
+    imgui_data->frame_color[3] = 1.0f;
+}
 
 void 
 AppEngine::RenderFrame ()
@@ -318,7 +334,7 @@ AppEngine::RenderFrame ()
         FeedInputImage (texid, win_w, win_h);
 
         ttime[2] = pmeter_get_time_ms ();
-        invoke_blazeface (&face_ret);
+        invoke_blazeface (&face_ret, &glctx.imgui_data.blazeface_config);
         ttime[3] = pmeter_get_time_ms ();
         invoke_ms = ttime[3] - ttime[2];
 
@@ -408,7 +424,10 @@ AppEngine::InitGLES (void)
                     (char *)BLAZEFACE_MODEL_PATH, m_detect_tflite_model_buf);
 
     ret = init_tflite_blazeface (
-        (const char *)m_detect_tflite_model_buf.data(), m_detect_tflite_model_buf.size());
+        (const char *)m_detect_tflite_model_buf.data(), m_detect_tflite_model_buf.size(),
+        &glctx.imgui_data.blazeface_config);
+
+    setup_imgui (w, h, &glctx.imgui_data);
 
     glctx.disp_w = w;
     glctx.disp_h = h;
