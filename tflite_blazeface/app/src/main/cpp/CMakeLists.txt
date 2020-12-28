@@ -104,6 +104,13 @@ set_target_properties(lib_tflite_gpu_delegate PROPERTIES IMPORTED_LOCATION
 # ------------------------------------------------------------
 #add_compile_options(-DUSE_QUANT_TFLITE_MODEL)
 
+# ------------------------------------------------------------
+#  for IMGUI popup dialog
+# ------------------------------------------------------------
+add_compile_options(-DUSE_IMGUI)
+add_compile_options(-DIMGUI_IMPL_OPENGL_ES2)
+include_directories(${thirdpDir}/imgui/
+                    ${thirdpDir}/imgui/examples)
 
 
 add_library(native-activity SHARED
@@ -111,9 +118,10 @@ add_library(native-activity SHARED
         ${CMAKE_CURRENT_SOURCE_DIR}/app_engine.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/tflite_blazeface.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/camera_manager.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/render_imgui.cpp
         ${commonDir}/android/camera_utils.cpp
+        ${commonDir}/android/gestureDetector.cpp
         ${commonDir}/android/util_asset.cpp
-        ${commonDir}/util_tflite.cpp
         ${commonDir}/assertgl.c
         ${commonDir}/assertegl.c
         ${commonDir}/util_egl.c
@@ -123,7 +131,12 @@ add_library(native-activity SHARED
         ${commonDir}/util_render2d.c
         ${commonDir}/util_debugstr.c
         ${commonDir}/util_pmeter.c
-        ${commonDir}/winsys/winsys_null.c)
+        ${commonDir}/util_tflite.cpp
+        ${commonDir}/winsys/winsys_null.c
+        ${thirdpDir}/imgui/imgui.cpp
+        ${thirdpDir}/imgui/imgui_draw.cpp
+        ${thirdpDir}/imgui/imgui_widgets.cpp
+        ${thirdpDir}/imgui/examples/imgui_impl_opengl3.cpp)
 
 
 include_directories(${thirdpDir}

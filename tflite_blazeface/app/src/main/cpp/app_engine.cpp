@@ -13,6 +13,7 @@
 #include "util_render2d.h"
 #include "tflite_blazeface.h"
 #include "app_engine.h"
+#include "render_imgui.h"
 
 #define UNUSED(x) (void)(x)
 
@@ -167,15 +168,32 @@ AppEngine::adjust_texture (int win_w, int win_h, int texw, int texh,
     *dh = (int)scaled_h;
 }
 
+#if defined (USE_IMGUI)
+void
+AppEngine::mousemove_cb (int x, int y)
+{
+    imgui_mousemove (x, y);
+}
 
+void
+AppEngine::button_cb (int button, int state, int x, int y)
+{
+    imgui_mousebutton (button, state, x, y);
+}
+
+void
+AppEngine::keyboard_cb (int key, int state, int x, int y)
+{
+}
+#endif
 
 void
 AppEngine::setup_imgui (int win_w, int win_h, imgui_data_t *imgui_data)
 {
-#if 0
-    egl_set_motion_func (mousemove_cb);
-    egl_set_button_func (button_cb);
-    egl_set_key_func    (keyboard_cb);
+#if defined (USE_IMGUI)
+    //egl_set_motion_func (mousemove_cb);
+    //egl_set_button_func (button_cb);
+    //egl_set_key_func    (keyboard_cb);
 
     init_imgui (win_w, win_h);
 #endif
@@ -260,6 +278,9 @@ AppEngine::RenderFrame ()
         draw_dbgstr (glctx.str_glvendor,   10, y); y += 22;
         draw_dbgstr (glctx.str_glrender,   10, y); y += 22;
 
+#if defined (USE_IMGUI)
+        invoke_imgui (&imgui_data);
+#endif
         egl_swap();
     }
     glctx.frame_count ++;

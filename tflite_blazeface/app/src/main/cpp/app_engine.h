@@ -15,6 +15,7 @@
 #include "camera_manager.h"
 #include "render_imgui.h"
 #include "tflite_blazeface.h"
+#include "gestureDetector.h"
 
 typedef struct gles_ctx {
     int initdone;
@@ -65,12 +66,23 @@ public:
     void RenderFrame (void);
 
     void DrawTFLiteConfigInfo ();
+
+    // IMGUI
     void setup_imgui (int win_w, int win_h, imgui_data_t *imgui_data);
 
     // Blazeface Specific
     void feed_blazeface_image (texture_2d_t *srctex, int win_w, int win_h);
     void render_detect_region (int ofstx, int ofsty, int texw, int texh,
                                blazeface_result_t *detection, imgui_data_t *imgui_data);
+
+    /* for touch gesture */
+    ndk_helper::TapDetector        tap_detector_;
+    ndk_helper::DoubletapDetector  doubletap_detector_;
+    ndk_helper::DragDetector       drag_detector_;
+
+    void mousemove_cb (int x, int y);
+    void button_cb (int button, int state, int x, int y);
+    void keyboard_cb (int key, int state, int x, int y);
 
 private:
 
