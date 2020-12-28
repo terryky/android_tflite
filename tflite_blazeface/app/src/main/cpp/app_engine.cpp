@@ -4,7 +4,6 @@
  * ------------------------------------------------ */
 #include <cstdio>
 #include <GLES2/gl2.h>
-#include "app_engine.h"
 #include "util_debug.h"
 #include "util_asset.h"
 #include "util_egl.h"
@@ -12,8 +11,259 @@
 #include "util_pmeter.h"
 #include "util_texture.h"
 #include "util_render2d.h"
+#include "tflite_blazeface.h"
+#include "app_engine.h"
 
-#define MAX_BUF_COUNT 4
+#define UNUSED(x) (void)(x)
+
+
+
+
+
+/* resize image to DNN network input size and convert to fp32. */
+void
+AppEngine::feed_blazeface_image(texture_2d_t *srctex, int win_w, int win_h)
+{
+    int x, y, w, h;
+    float *buf_fp32 = (float *)get_blazeface_input_buf (&w, &h);
+    unsigned char *buf_ui8 = NULL;
+    static unsigned char *pui8 = NULL;
+
+    if (pui8 == NULL)
+        pui8 = (unsigned char *)malloc(w * h * 4);
+
+    buf_ui8 = pui8;
+
+    draw_2d_texture_ex (srctex, 0, win_h - h, w, h, 1);
+
+    glPixelStorei (GL_PACK_ALIGNMENT, 4);
+    glReadPixels (0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, buf_ui8);
+
+    /* convert UI8 [0, 255] ==> FP32 [-1, 1] */
+    float mean = 128.0f;
+    float std  = 128.0f;
+    for (y = 0; y < h; y ++)
+    {
+        for (x = 0; x < w; x ++)
+        {
+            int r = *buf_ui8 ++;
+            int g = *buf_ui8 ++;
+            int b = *buf_ui8 ++;
+            buf_ui8 ++;          /* skip alpha */
+            *buf_fp32 ++ = (float)(r - mean) / std;
+            *buf_fp32 ++ = (float)(g - mean) / std;
+            *buf_fp32 ++ = (float)(b - mean) / std;
+        }
+    }
+
+    return;
+}
+
+
+void
+AppEngine::render_detect_region (int ofstx, int ofsty, int texw, int texh,
+                                 blazeface_result_t *detection, imgui_data_t *imgui_data)
+{
+    float col_white[] = {1.0f, 1.0f, 1.0f, 1.0f};
+    float *col_frame = imgui_data->frame_color;
+
+    for (int i = 0; i < detection->num; i ++)
+    {
+        face_t *face = &(detection->faces[i]);
+        float x1 = face->topleft.x  * texw + ofstx;
+        float y1 = face->topleft.y  * texh + ofsty;
+        float x2 = face->btmright.x * texw + ofstx;
+        float y2 = face->btmright.y * texh + ofsty;
+        float score = face->score;
+
+        /* rectangle region */
+        draw_2d_rect (x1, y1, x2-x1, y2-y1, col_frame, 2.0f);
+
+        /* detect score */
+        char buf[512];
+        sprintf (buf, "%d", (int)(score * 100));
+        draw_dbgstr_ex (buf, x1, y1, 1.0f, col_white, col_frame);
+
+        /* key points */
+        for (int j = 0; j < kFaceKeyNum; j ++)
+        {
+            float x = face->keys[j].x * texw + ofstx;
+            float y = face->keys[j].y * texh + ofsty;
+
+            int r = 4;
+            draw_2d_fillrect (x - (r/2), y - (r/2), r, r, col_frame);
+        }
+    }
+}
+
+void
+AppEngine::DrawTFLiteConfigInfo ()
+{
+    char strbuf[512];
+    float col_pink[]  = {1.0f, 0.0f, 1.0f, 0.5f};
+    float col_white[] = {1.0f, 1.0f, 1.0f, 1.0f};
+    float *col_bg = col_pink;
+
+    if (glctx.tex_camera_valid)
+    {
+        sprintf (strbuf, "CAMERA ENABLED");
+    }
+    else
+    {
+        sprintf (strbuf, "CAMERA DISABLED");
+    }
+    draw_dbgstr_ex (strbuf, glctx.disp_w - 250, 0, 1.0f, col_white, col_bg);
+
+#if defined (USE_GPU_DELEGATEV2)
+    sprintf (strbuf, "GPU_DELEGATEV2: ON ");
+#else
+    sprintf (strbuf, "GPU_DELEGATEV2: OFF");
+#endif
+    draw_dbgstr_ex (strbuf, glctx.disp_w - 250, 24, 1.0f, col_white, col_bg);
+
+}
+
+
+/* Adjust the texture size to fit the window size
+ *
+ *                      Portrait
+ *     Landscape        +------+
+ *     +-+------+-+     +------+
+ *     | |      | |     |      |
+ *     | |      | |     |      |
+ *     +-+------+-+     +------+
+ *                      +------+
+ */
+void
+AppEngine::adjust_texture (int win_w, int win_h, int texw, int texh, 
+                           int *dx, int *dy, int *dw, int *dh)
+{
+    float win_aspect = (float)win_w / (float)win_h;
+    float tex_aspect = (float)texw  / (float)texh;
+    float scale;
+    float scaled_w, scaled_h;
+    float offset_x, offset_y;
+
+    if (win_aspect > tex_aspect)
+    {
+        scale = (float)win_h / (float)texh;
+        scaled_w = scale * texw;
+        scaled_h = scale * texh;
+        offset_x = (win_w - scaled_w) * 0.5f;
+        offset_y = 0;
+    }
+    else
+    {
+        scale = (float)win_w / (float)texw;
+        scaled_w = scale * texw;
+        scaled_h = scale * texh;
+        offset_x = 0;
+        offset_y = (win_h - scaled_h) * 0.5f;
+    }
+
+    *dx = (int)offset_x;
+    *dy = (int)offset_y;
+    *dw = (int)scaled_w;
+    *dh = (int)scaled_h;
+}
+
+
+
+void
+AppEngine::setup_imgui (int win_w, int win_h, imgui_data_t *imgui_data)
+{
+#if 0
+    egl_set_motion_func (mousemove_cb);
+    egl_set_button_func (button_cb);
+    egl_set_key_func    (keyboard_cb);
+
+    init_imgui (win_w, win_h);
+#endif
+
+    imgui_data->frame_color[0] = 1.0f;
+    imgui_data->frame_color[1] = 0.0f;
+    imgui_data->frame_color[2] = 0.0f;
+    imgui_data->frame_color[3] = 1.0f;
+}
+
+
+void 
+AppEngine::RenderFrame ()
+{
+    texture_2d_t captex;
+
+    if (glctx.tex_camera_valid)
+        captex = glctx.tex_camera;
+    else
+        captex = glctx.tex_static;
+
+    int win_w  = glctx.disp_w;
+    int win_h  = glctx.disp_h;
+    static double ttime[10] = {0}, interval, invoke_ms;
+
+    int draw_x, draw_y, draw_w, draw_h;
+	int texw = captex.width;
+	int texh = captex.height;
+    adjust_texture (win_w, win_h, texw, texh, &draw_x, &draw_y, &draw_w, &draw_h);
+
+    glClearColor (0.f, 0.f, 0.f, 1.0f);
+
+    /* --------------------------------------- *
+     *  Render Loop
+     * --------------------------------------- */
+    int count = glctx.frame_count;
+    {
+        blazeface_result_t face_ret = {0};
+        char strbuf[512];
+
+        PMETER_RESET_LAP ();
+        PMETER_SET_LAP ();
+
+        ttime[1] = pmeter_get_time_ms ();
+        interval = (count > 0) ? ttime[1] - ttime[0] : 0;
+        ttime[0] = ttime[1];
+
+        glClear (GL_COLOR_BUFFER_BIT);
+
+        /* --------------------------------------- *
+         *  face detection
+         * --------------------------------------- */
+        feed_blazeface_image (&captex, win_w, win_h);
+
+        ttime[2] = pmeter_get_time_ms ();
+        invoke_blazeface (&face_ret, &imgui_data.blazeface_config);
+        ttime[3] = pmeter_get_time_ms ();
+        invoke_ms = ttime[3] - ttime[2];
+
+        /* --------------------------------------- *
+         *  render scene
+         * --------------------------------------- */
+        glClear (GL_COLOR_BUFFER_BIT);
+
+        /* visualize the face detection results. */
+        draw_2d_texture_ex (&captex, draw_x, draw_y, draw_w, draw_h, 0);
+        render_detect_region (draw_x, draw_y, draw_w, draw_h, &face_ret, &imgui_data);
+
+        /* --------------------------------------- *
+         *  post process
+         * --------------------------------------- */
+        DrawTFLiteConfigInfo ();
+
+        draw_pmeter (0, 40);
+
+        sprintf (strbuf, "Interval:%5.1f [ms]\nTFLite  :%5.1f [ms]", interval, invoke_ms);
+        draw_dbgstr (strbuf, 10, 10);
+
+        /* renderer info */
+		int y = 10 + 22 * 2;
+        draw_dbgstr (glctx.str_glverstion, 10, y); y += 22;
+        draw_dbgstr (glctx.str_glvendor,   10, y); y += 22;
+        draw_dbgstr (glctx.str_glrender,   10, y); y += 22;
+
+        egl_swap();
+    }
+    glctx.frame_count ++;
+}
 
 
 AppEngine::AppEngine (android_app* app)
@@ -59,348 +309,14 @@ AppEngine::AndroidApp (void) const
  *  OpenGLES Render Functions
  * ---------------------------------------------------------------------------- */
 void
-AppEngine::LoadInputTexture (input_tex_t *tex, char *fname)
+AppEngine::LoadInputTexture (texture_2d_t *tex, char *fname)
 {
-    int32_t dsp_w = glctx.disp_w;
-    int32_t dsp_h = glctx.disp_h;
-    int32_t img_w, img_h, drw_x, drw_y, drw_w, drw_h;
-    uint8_t *img_buf;
-    GLuint texid;
+    int32_t img_w, img_h;
+    uint8_t *img_buf = asset_read_image (AndroidApp()->activity->assetManager, fname, &img_w, &img_h);
 
-    img_buf = asset_read_image (AndroidApp()->activity->assetManager, fname, &img_w, &img_h);
-    texid = create_2d_texture ((void *)img_buf, img_w, img_h);
+    create_2d_texture_ex (tex, img_buf, img_w, img_h, pixfmt_fourcc('R', 'G', 'B', 'A'));
     asset_free_image (img_buf);
-
-    AdjustTexture (dsp_w, dsp_h, img_w, img_h, &drw_x, &drw_y, &drw_w, &drw_h);
-
-    tex->w = img_w;
-    tex->h = img_h;
-    tex->texid = texid;
-    tex->draw_x = drw_x;
-    tex->draw_y = drw_y;
-    tex->draw_w = drw_w;
-    tex->draw_h = drw_h;
 }
-
-
-/* Adjust the texture size to fit the window size
- *
- *                      Portrait
- *     Landscape        +------+
- *     +-+------+-+     +------+
- *     | |      | |     |      |
- *     | |      | |     |      |
- *     +-+------+-+     +------+
- *                      +------+
- */
-void
-AppEngine::AdjustTexture (int win_w, int win_h, int texw, int texh,
-                          int *dx, int *dy, int *dw, int *dh)
-{
-    float win_aspect = (float)win_w / (float)win_h;
-    float tex_aspect = (float)texw  / (float)texh;
-    float scale;
-    float scaled_w, scaled_h;
-    float offset_x, offset_y;
-
-    if (win_aspect > tex_aspect)
-    {
-        scale = (float)win_h / (float)texh;
-        scaled_w = scale * texw;
-        scaled_h = scale * texh;
-        offset_x = (win_w - scaled_w) * 0.5f;
-        offset_y = 0;
-    }
-    else
-    {
-        scale = (float)win_w / (float)texw;
-        scaled_w = scale * texw;
-        scaled_h = scale * texh;
-        offset_x = 0;
-        offset_y = (win_h - scaled_h) * 0.5f;
-    }
-
-    *dx = (int)offset_x;
-    *dy = (int)offset_y;
-    *dw = (int)scaled_w;
-    *dh = (int)scaled_h;
-}
-
-
-void
-AppEngine::FeedInputImageUI8 (int texid, int win_w, int win_h)
-{
-    int w, h;
-    uint8_t *buf_u8 = (uint8_t *)get_blazeface_input_buf (&w, &h);
-
-    draw_2d_texture (texid, 0, win_h - h, w, h, 1);
-
-#if 0 /* if your platform supports glReadPixles(GL_RGB), use this code. */
-    glPixelStorei (GL_PACK_ALIGNMENT, 1);
-    glReadPixels (0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE, buf);
-#else /* if your platform supports only glReadPixels(GL_RGBA), try this code. */
-    {
-        int x, y;
-        unsigned char *bufRGBA = (unsigned char *)malloc (w * h * 4);
-        unsigned char *pRGBA = bufRGBA;
-        glPixelStorei (GL_PACK_ALIGNMENT, 4);
-        glReadPixels (0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, bufRGBA);
-
-        for (y = 0; y < h; y ++)
-        {
-            for (x = 0; x < w; x ++)
-            {
-                int r = *pRGBA ++;
-                int g = *pRGBA ++;
-                int b = *pRGBA ++;
-                pRGBA ++;          /* skip alpha */
-
-                *buf_u8 ++ = r;
-                *buf_u8 ++ = g;
-                *buf_u8 ++ = b;
-            }
-        }
-        free (bufRGBA);
-    }
-#endif
-}
-
-/* resize image to DNN network input size and convert to fp32. */
-void
-AppEngine::FeedInputImageFP32 (int texid, int win_w, int win_h)
-{
-    int w, h;
-    float *buf_fp32 = (float *)get_blazeface_input_buf (&w, &h);
-
-    draw_2d_texture (texid, 0, win_h - h, w, h, 1);
-
-    int x, y;
-    unsigned char *bufRGBA = (unsigned char *)malloc (w * h * 4);
-    unsigned char *pRGBA = bufRGBA;
-    glPixelStorei (GL_PACK_ALIGNMENT, 4);
-    glReadPixels (0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, bufRGBA);
-
-    /* convert UI8 [0, 255] ==> FP32 [-1, 1] */
-    float mean = 128.0f;
-    float std  = 128.0f;
-    for (y = 0; y < h; y ++)
-    {
-        for (x = 0; x < w; x ++)
-        {
-            int r = *pRGBA ++;
-            int g = *pRGBA ++;
-            int b = *pRGBA ++;
-            pRGBA ++;          /* skip alpha */
-            *buf_fp32 ++ = (float)(r - mean) / std;
-            *buf_fp32 ++ = (float)(g - mean) / std;
-            *buf_fp32 ++ = (float)(b - mean) / std;
-        }
-    }
-    free (bufRGBA);
-}
-
-
-void
-AppEngine::FeedInputImage (int texid, int win_w, int win_h)
-{
-#if 0
-    int type = get_deeplab_input_type ();
-    if (type)
-        FeedInputImageUI8  (texid, win_w, win_h);
-    else
-#endif
-        FeedInputImageFP32 (texid, win_w, win_h);
-}
-
-
-static void
-render_detect_region (int ofstx, int ofsty, int texw, int texh, blazeface_result_t *detection)
-{
-    float col_red[]   = {1.0f, 0.0f, 0.0f, 1.0f};
-    float col_white[] = {1.0f, 1.0f, 1.0f, 1.0f};
-
-    for (int i = 0; i < detection->num; i ++)
-    {
-        face_t *face = &(detection->faces[i]);
-        float x1 = face->topleft.x  * texw + ofstx;
-        float y1 = face->topleft.y  * texh + ofsty;
-        float x2 = face->btmright.x * texw + ofstx;
-        float y2 = face->btmright.y * texh + ofsty;
-        float score = face->score;
-
-        /* rectangle region */
-        draw_2d_rect (x1, y1, x2-x1, y2-y1, col_red, 2.0f);
-
-        /* class name */
-        char buf[512];
-        sprintf (buf, "%d", (int)(score * 100));
-        draw_dbgstr_ex (buf, x1, y1, 1.0f, col_white, col_red);
-
-        /* key points */
-        for (int j = 0; j < kFaceKeyNum; j ++)
-        {
-            float x = face->keys[j].x * texw + ofstx;
-            float y = face->keys[j].y * texh + ofsty;
-
-            int r = 4;
-            draw_2d_fillrect (x - (r/2), y - (r/2), r, r, col_red);
-        }
-    }
-}
-
-void
-AppEngine::DrawTFLiteConfigInfo ()
-{
-    char strbuf[512];
-    float col_pink[]  = {1.0f, 0.0f, 1.0f, 0.5f};
-    float col_white[] = {1.0f, 1.0f, 1.0f, 1.0f};
-    float *col_bg = col_pink;
-
-    if (glctx.tex_camera_valid)
-    {
-        sprintf (strbuf, "CAMERA ENABLED");
-    }
-    else
-    {
-        sprintf (strbuf, "CAMERA DISABLED");
-    }
-    draw_dbgstr_ex (strbuf, glctx.disp_w - 250, 0, 1.0f, col_white, col_bg);
-
-#if defined (USE_GPU_DELEGATEV2)
-    sprintf (strbuf, "GPU_DELEGATEV2: ON ");
-#else
-    sprintf (strbuf, "GPU_DELEGATEV2: OFF");
-#endif
-    draw_dbgstr_ex (strbuf, glctx.disp_w - 250, 24, 1.0f, col_white, col_bg);
-
-#if defined (USE_QUANT_TFLITE_MODEL)
-    sprintf (strbuf, "MODEL_INTQUANT: ON ");
-    draw_dbgstr_ex (strbuf, glctx.disp_w - 250, 48, 1.0f, col_white, col_bg);
-#endif
-}
-
-void
-AppEngine::setup_imgui (int win_w, int win_h, imgui_data_t *imgui_data)
-{
-#if 0
-    egl_set_motion_func (mousemove_cb);
-    egl_set_button_func (button_cb);
-    egl_set_key_func    (keyboard_cb);
-
-    init_imgui (win_w, win_h);
-#endif
-
-    imgui_data->frame_color[0] = 1.0f;
-    imgui_data->frame_color[1] = 0.0f;
-    imgui_data->frame_color[2] = 0.0f;
-    imgui_data->frame_color[3] = 1.0f;
-}
-
-void 
-AppEngine::RenderFrame ()
-{
-    input_tex_t *input_tex;
-
-    if (glctx.tex_camera_valid)
-        input_tex = &glctx.tex_camera;
-    else
-        input_tex = &glctx.tex_static;
-
-    GLuint texid = input_tex->texid;
-    int draw_x = input_tex->draw_x;
-    int draw_y = input_tex->draw_y;
-    int draw_w = input_tex->draw_w;
-    int draw_h = input_tex->draw_h;
-    int win_w  = glctx.disp_w;
-    int win_h  = glctx.disp_h;
-    static double ttime[10] = {0}, interval, invoke_ms;
-
-    glClearColor (0.f, 0.f, 0.f, 1.0f);
-
-    int count = glctx.frame_count;
-    {
-        blazeface_result_t face_ret = {0};
-        char strbuf[512];
-
-        PMETER_RESET_LAP ();
-        PMETER_SET_LAP ();
-
-        ttime[1] = pmeter_get_time_ms ();
-        interval = (count > 0) ? ttime[1] - ttime[0] : 0;
-        ttime[0] = ttime[1];
-
-        glClear (GL_COLOR_BUFFER_BIT);
-
-        FeedInputImage (texid, win_w, win_h);
-
-        ttime[2] = pmeter_get_time_ms ();
-        invoke_blazeface (&face_ret, &glctx.imgui_data.blazeface_config);
-        ttime[3] = pmeter_get_time_ms ();
-        invoke_ms = ttime[3] - ttime[2];
-
-        /* visualize the object detection results. */
-        glClear (GL_COLOR_BUFFER_BIT);
-        draw_2d_texture (texid,  draw_x, draw_y, draw_w, draw_h, 0);
-        render_detect_region (draw_x, draw_y, draw_w, draw_h, &face_ret);
-
-        DrawTFLiteConfigInfo ();
-
-        /* renderer info */
-        draw_dbgstr (glctx.str_glverstion, 10, 0);
-        draw_dbgstr (glctx.str_glvendor,   10, 22);
-        draw_dbgstr (glctx.str_glrender,   10, 44);
-
-        draw_pmeter (0, 100);
-
-        sprintf (strbuf, "Interval:%5.1f [ms]\nTFLite  :%5.1f [ms]", interval, invoke_ms);
-        draw_dbgstr (strbuf, 10, 80);
-
-        egl_swap();
-    }
-    glctx.frame_count ++;
-}
-
-
-void
-AppEngine::UpdateCameraTexture ()
-{
-    input_tex_t *input_tex = &glctx.tex_camera;
-    GLuint texid = input_tex->texid;
-    int    cap_w, cap_h;
-    void   *cap_buf;
-
-    GetAppEngine()->AcquireCameraFrame (&cap_buf, &cap_w, &cap_h);
-
-    if (cap_buf == NULL)
-        return;
-
-    if (texid == 0)
-    {
-        int32_t dsp_w = glctx.disp_w;
-        int32_t dsp_h = glctx.disp_h;
-        int32_t drw_x, drw_y, drw_w, drw_h;
-
-        texid = create_2d_texture (cap_buf, cap_w, cap_h);
-
-        AdjustTexture (dsp_w, dsp_h, cap_w, cap_h, &drw_x, &drw_y, &drw_w, &drw_h);
-
-        input_tex->w      = cap_w;
-        input_tex->h      = cap_h;
-        input_tex->texid  = texid;
-        input_tex->draw_x = drw_x;
-        input_tex->draw_y = drw_y;
-        input_tex->draw_w = drw_w;
-        input_tex->draw_h = drw_h;
-    }
-    else
-    {
-        glBindTexture (GL_TEXTURE_2D, texid);
-        glTexSubImage2D (GL_TEXTURE_2D, 0, 0, 0, cap_w, cap_h, GL_RGBA, GL_UNSIGNED_BYTE, cap_buf);
-    }
-
-    glctx.tex_camera_valid = true;
-}
-
 
 void 
 AppEngine::InitGLES (void)
@@ -421,13 +337,13 @@ AppEngine::InitGLES (void)
     init_dbgstr (w, h);
 
     asset_read_file (m_app->activity->assetManager,
-                    (char *)BLAZEFACE_MODEL_PATH, m_detect_tflite_model_buf);
+                    (char *)BLAZEFACE_MODEL_PATH, m_tflite_model_buf);
 
     ret = init_tflite_blazeface (
-        (const char *)m_detect_tflite_model_buf.data(), m_detect_tflite_model_buf.size(),
-        &glctx.imgui_data.blazeface_config);
+        (const char *)m_tflite_model_buf.data(), m_tflite_model_buf.size(),
+        &imgui_data.blazeface_config);
 
-    setup_imgui (w, h, &glctx.imgui_data);
+    setup_imgui (w, h, &imgui_data);
 
     glctx.disp_w = w;
     glctx.disp_h = h;
@@ -462,6 +378,8 @@ AppEngine::UpdateFrame (void)
 /* ---------------------------------------------------------------------------- *
  *  Manage NDKCamera Functions
  * ---------------------------------------------------------------------------- */
+#define MAX_BUF_COUNT 4
+
 void 
 AppEngine::InitCamera (void)
 {
@@ -515,7 +433,31 @@ AppEngine::CreateCamera(void)
     m_camera->StartPreview (true);
 }
 
+void
+AppEngine::UpdateCameraTexture ()
+{
+    texture_2d_t *input_tex = &glctx.tex_camera;
+    GLuint texid = input_tex->texid;
+    int    cap_w, cap_h;
+    void   *cap_buf;
 
+    GetAppEngine()->AcquireCameraFrame (&cap_buf, &cap_w, &cap_h);
+
+    if (cap_buf == NULL)
+        return;
+
+    if (texid == 0)
+    {
+        create_2d_texture_ex (input_tex, cap_buf, cap_w, cap_h, pixfmt_fourcc('R', 'G', 'B', 'A'));
+    }
+    else
+    {
+        glBindTexture (GL_TEXTURE_2D, texid);
+        glTexSubImage2D (GL_TEXTURE_2D, 0, 0, 0, cap_w, cap_h, GL_RGBA, GL_UNSIGNED_BYTE, cap_buf);
+    }
+
+    glctx.tex_camera_valid = true;
+}
 
 
 

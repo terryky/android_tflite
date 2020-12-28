@@ -11,15 +11,10 @@
 #include <thread>
 #include <GLES2/gl2.h>
 
+#include "util_texture.h"
 #include "camera_manager.h"
 #include "render_imgui.h"
 #include "tflite_blazeface.h"
-
-typedef struct input_tex {
-    GLuint texid;
-    int    w, h;
-    int    draw_x, draw_y, draw_w, draw_h;
-} input_tex_t;
 
 typedef struct gles_ctx {
     int initdone;
@@ -32,10 +27,8 @@ typedef struct gles_ctx {
     int disp_w, disp_h;
 
     bool tex_camera_valid;
-    input_tex_t tex_static;
-    input_tex_t tex_camera;
-
-    imgui_data_t imgui_data;
+    texture_2d_t tex_static;
+    texture_2d_t tex_camera;
 } gles_ctx_t;
 
 
@@ -63,22 +56,21 @@ public:
     void InitGLES (void);
     void TerminateGLES (void);
     
-    void LoadInputTexture (input_tex_t *tex, char *fname);
+    void LoadInputTexture (texture_2d_t *tex, char *fname);
     void UpdateCameraTexture ();
-    void AdjustTexture (int win_w, int win_h, int texw, int texh,
-                        int *dx, int *dy, int *dw, int *dh);
+    void adjust_texture (int win_w, int win_h, int texw, int texh,
+                         int *dx, int *dy, int *dw, int *dh);
 
     void UpdateFrame (void);
     void RenderFrame (void);
 
     void DrawTFLiteConfigInfo ();
     void setup_imgui (int win_w, int win_h, imgui_data_t *imgui_data);
-    
-    // Style Transfer Specific
-    void FeedInputImageUI8  (int texid, int win_w, int win_h);
-    void FeedInputImageFP32 (int texid, int win_w, int win_h);
-    void FeedInputImage (int texid, int win_w, int win_h);
 
+    // Blazeface Specific
+    void feed_blazeface_image (texture_2d_t *srctex, int win_w, int win_h);
+    void render_detect_region (int ofstx, int ofsty, int texw, int texh,
+                               blazeface_result_t *detection, imgui_data_t *imgui_data);
 
 private:
 
@@ -89,8 +81,9 @@ private:
     AImageReader        *m_img_reader;
 
     gles_ctx_t          glctx;
-    std::vector<uint8_t> m_detect_tflite_model_buf;
-    std::vector<uint8_t> m_detect_label_map_buf;
+    std::vector<uint8_t> m_tflite_model_buf;
+
+    imgui_data_t        imgui_data;
 
 public:
 };
