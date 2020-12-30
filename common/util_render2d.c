@@ -504,6 +504,11 @@ draw_2d_texture_ex (texture_2d_t *tex, int x, int y, int w, int h, int upsidedow
         tparam.textype = SHADER_TYPE_TEX_YUYV;
     else if (tex->format == pixfmt_fourcc('U', 'Y', 'V', 'Y'))
         tparam.textype = SHADER_TYPE_TEX_UYVY;
+    else if (tex->format == pixfmt_fourcc('E', 'X', 'T', 'X'))
+    {
+        tparam.textype = SHADER_TYPE_EXTEX;
+        tparam.upsidedown = 1 - upsidedown;
+    }
 
     draw_2d_texture_in (&tparam);
 
