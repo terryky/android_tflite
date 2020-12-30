@@ -9,6 +9,10 @@
 #include <android_native_app_glue.h>
 #include <functional>
 #include <thread>
+#include <EGL/egl.h>
+#include <EGL/eglext.h>
+#include <GLES/gl.h>
+#include <GLES/glext.h>
 #include <GLES2/gl2.h>
 
 #include "util_texture.h"
@@ -30,6 +34,7 @@ typedef struct gles_ctx {
     bool tex_camera_valid;
     texture_2d_t tex_static;
     texture_2d_t tex_camera;
+    EGLImage egl_img;
 } gles_ctx_t;
 
 
@@ -51,7 +56,6 @@ public:
     void InitCamera (void);
     void CreateCamera(void);
     void DeleteCamera(void);
-    void AcquireCameraFrame (void **cap_buf, int *cap_w, int *cap_h);
 
     // OpenGLES Render
     void InitGLES (void);
@@ -90,7 +94,7 @@ private:
 
     bool                m_cameraGranted;
     NDKCamera           *m_camera;
-    AImageReader        *m_img_reader;
+    ImageReaderHelper   m_ImgReader;
 
     gles_ctx_t          glctx;
     std::vector<uint8_t> m_tflite_model_buf;

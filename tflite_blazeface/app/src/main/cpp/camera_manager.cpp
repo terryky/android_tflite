@@ -352,3 +352,163 @@ NDKCamera::OnSessionState(ACameraCaptureSession* ses, CaptureSessionState state)
 }
 
 
+
+
+/* ----------------------------------------------------------------- *
+ *  ImageReaderHelper for AHardwareBuffer
+ * ----------------------------------------------------------------- */
+ImageReaderHelper::ImageReaderHelper ()
+{
+    mFormat    = AIMAGE_FORMAT_PRIVATE;
+    mUsage     = AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE;
+    mMaxImages = 3;
+}
+
+ImageReaderHelper::~ImageReaderHelper()
+{
+    mAcquiredImage.reset();
+    if (mImgReaderAnw)
+    {
+        AImageReader_delete (mImgReader);
+        // No need to call ANativeWindow_release on imageReaderAnw
+    }
+}
+
+
+static void
+OnImageAvailable (void* obj, AImageReader*)
+{
+    ImageReaderHelper *thiz = reinterpret_cast<ImageReaderHelper *>(obj);
+    thiz->HandleImageAvailable();
+}
+
+void
+ImageReaderHelper::HandleImageAvailable()
+{
+    std::lock_guard<std::mutex> lock(mMutex);
+
+    mAvailableImages += 1; /* increment acquired image nums */
+}
+
+
+int
+ImageReaderHelper::InitImageReader (int width, int height)
+{
+    mWidth  = width;
+    mHeight = height;
+
+    if (mImgReader != nullptr || mImgReaderAnw != nullptr)
+    {
+        ReleaseImageReader ();
+    }
+
+    /* AImageReader for GPU Reading */
+    int ret = AImageReader_newWithUsage (mWidth, mHeight, mFormat, mUsage, mMaxImages, &mImgReader);
+    if (ret != AMEDIA_OK || mImgReader == nullptr)
+    {
+        DBG_LOGE ("Failed to create new AImageReader");
+        return -1;
+    }
+
+    /* Set Callback fuction */
+    AImageReader_ImageListener readerAvailableCb {this, OnImageAvailable};
+    media_status_t stat = AImageReader_setImageListener (mImgReader, &readerAvailableCb);
+    if (stat != AMEDIA_OK)
+    {
+        DBG_LOGE ("Failed to set image available listener, ret=%d.", ret);
+        return ret;
+    }
+
+    /* ANativeWindow */
+    stat = AImageReader_getWindow (mImgReader, &mImgReaderAnw);
+    if (stat != AMEDIA_OK || mImgReaderAnw == nullptr)
+    {
+        DBG_LOGE ("Failed to get ANativeWindow from AImageReader, ret=%d", ret);
+        return -1;
+    }
+
+    return 0;
+}
+
+int
+ImageReaderHelper::ReleaseImageReader ()
+{
+    mAcquiredImage.reset();
+    if (mImgReaderAnw)
+    {
+        AImageReader_delete (mImgReader);
+    }
+    mImgReader    = nullptr;
+    mImgReaderAnw = nullptr;
+
+    return 0;
+}
+
+int
+ImageReaderHelper::GetBufferDimension (int *width, int *height)
+{
+    *width  = mWidth;
+    *height = mHeight;
+    return 0;
+}
+
+ANativeWindow *
+ImageReaderHelper::GetNativeWindow()
+{
+    return mImgReaderAnw;
+}
+
+
+int
+ImageReaderHelper::GetCurrentHWBuffer (AHardwareBuffer **outBuffer)
+{
+    std::lock_guard<std::mutex> lock(mMutex);
+
+    int ret;
+    if (mAvailableImages > 0)
+    {
+        AImage *outImage = nullptr;
+
+        mAvailableImages -= 1;  /* decrement acquired image nums */
+
+        ret = AImageReader_acquireLatestImage (mImgReader, &outImage);
+        if (ret != AMEDIA_OK || outImage == nullptr)
+        {
+            DBG_LOGE("Failed to acquire image, ret=%d, outIamge=%p.", ret, outImage);
+        }
+        else
+        {
+            // Any exisitng in mAcquiredImage will be deleted and released automatically.
+            mAcquiredImage.reset (outImage);
+        }
+    }
+
+    if (mAcquiredImage == nullptr)
+    {
+        return -EAGAIN;
+    }
+
+    AHardwareBuffer *ahw_buffer = nullptr;
+    ret = AImage_getHardwareBuffer (mAcquiredImage.get(), &ahw_buffer);
+    if (ret != AMEDIA_OK || ahw_buffer == nullptr)
+    {
+        DBG_LOGE("Faild to get hardware buffer, ret=%d, outBuffer=%p.", ret, ahw_buffer);
+        return -ENOMEM;
+    }
+
+#if 0
+    AHardwareBuffer_Desc outDesc;
+    AHardwareBuffer_describe (ahw_buffer, &outDesc);
+    DBG_LOGI("[AHardwareBuffer] format: %d",  outDesc.format);
+    DBG_LOGI("[AHardwareBuffer] width : %d",  outDesc.width);
+    DBG_LOGI("[AHardwareBuffer] height: %d",  outDesc.height);
+    DBG_LOGI("[AHardwareBuffer] layers: %d",  outDesc.layers);
+    DBG_LOGI("[AHardwareBuffer] stride: %d",  outDesc.stride);
+    DBG_LOGI("[AHardwareBuffer] usage : %lu", outDesc.usage);
+#endif
+
+    *outBuffer = ahw_buffer;
+    return 0;
+}
+
+

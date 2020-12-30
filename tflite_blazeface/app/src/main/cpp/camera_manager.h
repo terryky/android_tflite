@@ -19,11 +19,13 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <mutex>
 #include <camera/NdkCameraManager.h>
 #include <camera/NdkCameraError.h>
 #include <camera/NdkCameraDevice.h>
 #include <camera/NdkCameraMetadataTags.h>
 #include <media/NdkImageReader.h>
+#include "util_debug.h"
 
 enum class CaptureSessionState : int32_t {
   READY = 0,  // session is ready
@@ -95,6 +97,39 @@ class CameraId {
   }
 
   explicit CameraId(void) { CameraId(""); }
+};
+
+
+
+/* ----------------------------------------------------------------- *
+ *  ImageReaderHelper for AHardwareBuffer
+ * ----------------------------------------------------------------- */
+class ImageReaderHelper {
+public:
+    using ImagePtr = std::unique_ptr<AImage, decltype(&AImage_delete)>;
+
+    ImageReaderHelper ();
+    ~ImageReaderHelper ();
+
+    int     InitImageReader (int width, int height);
+    int     ReleaseImageReader ();
+    void    HandleImageAvailable ();
+
+    int     GetCurrentHWBuffer (AHardwareBuffer** outBuffer);
+    int     GetBufferDimension (int *width, int *height);
+    ANativeWindow *GetNativeWindow ();
+
+private:
+    int             mWidth, mHeight, mFormat, mMaxImages;
+    uint64_t        mUsage;
+
+    std::mutex      mMutex;
+
+    size_t          mAvailableImages{0};
+    ImagePtr        mAcquiredImage {nullptr, AImage_delete};
+
+    AImageReader    *mImgReader    {nullptr};
+    ANativeWindow   *mImgReaderAnw {nullptr};
 };
 
 #endif  // CAMERA_NATIVE_CAMERA_H
