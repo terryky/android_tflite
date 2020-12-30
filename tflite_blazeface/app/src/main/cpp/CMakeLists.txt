@@ -112,6 +112,8 @@ add_compile_options(-DIMGUI_IMPL_OPENGL_ES2)
 include_directories(${thirdpDir}/imgui/
                     ${thirdpDir}/imgui/examples)
 
+add_compile_options(-DEGL_EGLEXT_PROTOTYPES)
+add_compile_options(-DGL_GLEXT_PROTOTYPES)
 
 add_library(native-activity SHARED
         ${CMAKE_CURRENT_SOURCE_DIR}/android_main.cpp
