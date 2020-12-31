@@ -43,6 +43,7 @@
  */
 const char* GetErrorStr(camera_status_t err);
 const char* GetTagStr(acamera_metadata_tag_t tag);
+const char* GetFormatStr(int fmt);
 void PrintMetadataTags(int32_t entries, const uint32_t* pTags);
 void PrintLensFacing(ACameraMetadata_const_entry& lensData);
 void PrintCameras(ACameraManager* cameraMgr);
