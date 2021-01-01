@@ -4,10 +4,19 @@ Run and measure the performance of TensorFlow Lite GPU Delegate on Android NDK.
 
 
 ## 1. Applications
-| App name    | Descriptions |
-|:-----------:|:------------:|
-| [tflite_posenet](https://github.com/terryky/android_tflite/tree/master/tflite_posenet)| ![img](tflite_posenet/tflite_posenet.png " image") <br> Pose Estimation.|
-| [tflite_style_transfer](https://github.com/terryky/android_tflite/tree/master/tflite_style_transfer)| ![img](tflite_style_transfer/style_transfer.png " image") <br> Artistic style transfer.|
+
+### [Blazeface](https://github.com/terryky/android_tflite/tree/master/tflite_blazeface)
+- Lightweight Face Detection.<br>
+[<img src="tflite_blazeface/tflite_blazeface.png" width=500>](https://github.com/terryky/android_tflite/tree/master/tflite_blazeface)
+
+### [Posenet](https://github.com/terryky/android_tflite/tree/master/tflite_posenet)
+- Pose Estimation.<br>
+[<img src="tflite_posenet/tflite_posenet.png" width=500>](https://github.com/terryky/android_tflite/tree/master/tflite_posenet)
+
+### [Artistic Style Transfer](https://github.com/terryky/android_tflite/tree/master/tflite_style_transfer)
+- Create new artworks in artistic style.<br>
+[<img src="tflite_style_transfer/style_transfer.png" width=600>](https://github.com/terryky/android_tflite/tree/master/tflite_style_transfer)
+
 
 
 ## 2. How to Build & Run
