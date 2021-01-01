@@ -262,20 +262,20 @@ NDKCamera::StartPreview (bool start)
 static void
 OnCameraAvailable (void *ctx, const char *id)
 {
-    reinterpret_cast<NDKCamera*>(ctx)->OnCameraStatusChanged (id, true);
+    //reinterpret_cast<NDKCamera*>(ctx)->OnCameraStatusChanged (id, true);
 }
 
 static void
 OnCameraUnavailable (void *ctx, const char *id)
 {
-    reinterpret_cast<NDKCamera*>(ctx)->OnCameraStatusChanged (id, false);
+    //reinterpret_cast<NDKCamera*>(ctx)->OnCameraStatusChanged (id, false);
 }
 
 void
 NDKCamera::OnCameraStatusChanged(const char *id, bool available)
 {
     LOGI ("[NDKCamera::OnCameraStatusChanged] id: %s: available: %d", id, available);
-    mCameraIDMap[std::string(id)].available_ = available;
+    //mCameraIDMap[std::string(id)].available_ = available;
 }
 
 ACameraManager_AvailabilityCallbacks *
@@ -301,13 +301,13 @@ NDKCamera::GetManagerListener()
 static void
 OnDeviceStateChanges (void *ctx, ACameraDevice *dev)
 {
-    reinterpret_cast<NDKCamera*>(ctx)->OnDeviceState (dev);
+    //reinterpret_cast<NDKCamera*>(ctx)->OnDeviceState (dev);
 }
 
 static void
 OnDeviceErrorChanges (void *ctx, ACameraDevice *dev, int err)
 {
-    reinterpret_cast<NDKCamera*>(ctx)->OnDeviceError (dev, err);
+    //reinterpret_cast<NDKCamera*>(ctx)->OnDeviceError (dev, err);
 }
 
 ACameraDevice_stateCallbacks *
@@ -369,21 +369,21 @@ static void
 OnSessionClosed (void *ctx, ACameraCaptureSession *ses)
 {
     LOGI ("OnSessionClosed (%p)", ses);
-    reinterpret_cast<NDKCamera*>(ctx)->OnSessionState (ses, CaptureSessionState::CLOSED);
+    //reinterpret_cast<NDKCamera*>(ctx)->OnSessionState (ses, CaptureSessionState::CLOSED);
 }
 
 static void
 OnSessionReady (void *ctx, ACameraCaptureSession *ses)
 {
     LOGI ("OnSessionReady (%p)", ses);
-    reinterpret_cast<NDKCamera*>(ctx)->OnSessionState (ses, CaptureSessionState::READY);
+    //reinterpret_cast<NDKCamera*>(ctx)->OnSessionState (ses, CaptureSessionState::READY);
 }
 
 static void
 OnSessionActive (void *ctx, ACameraCaptureSession *ses)
 {
     LOGI ("OnSessionActive (%p)", ses);
-    reinterpret_cast<NDKCamera*>(ctx)->OnSessionState (ses, CaptureSessionState::ACTIVE);
+    //reinterpret_cast<NDKCamera*>(ctx)->OnSessionState (ses, CaptureSessionState::ACTIVE);
 }
 
 ACameraCaptureSession_stateCallbacks *
@@ -473,6 +473,7 @@ ImageReaderHelper::InitImageReader (int width, int height)
     }
 
     /* Set Callback fuction which is called when a new image is available */
+    mAvailableImages = 0;
     AImageReader_ImageListener readerAvailableCb {this, OnImageAvailable};
     media_status_t stat = AImageReader_setImageListener (mImgReader, &readerAvailableCb);
     if (stat != AMEDIA_OK)
