@@ -14,7 +14,8 @@ extern "C" {
 typedef struct _imgui_data_t
 {
     blazeface_config_t blazeface_config;
-    float frame_color[4];
+    int     camera_facing;
+    float   frame_color[4];
 } imgui_data_t;
 
 int  init_imgui (int width, int height);

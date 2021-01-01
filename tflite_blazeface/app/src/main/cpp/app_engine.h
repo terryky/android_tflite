@@ -54,8 +54,8 @@ public:
 
     // Manage NDKCamera Object
     void InitCamera (void);
-    void CreateCamera(void);
-    void DeleteCamera(void);
+    void CreateCamera (int facing);
+    void DeleteCamera (void);
 
     // OpenGLES Render
     void InitGLES (void);
@@ -100,6 +100,7 @@ private:
     std::vector<uint8_t> m_tflite_model_buf;
 
     imgui_data_t        imgui_data;
+    int                 m_camera_facing;
 
 public:
 };

@@ -198,6 +198,7 @@ AppEngine::setup_imgui (int win_w, int win_h, imgui_data_t *imgui_data)
     init_imgui (win_w, win_h);
 #endif
 
+    imgui_data->camera_facing  = m_camera_facing;
     imgui_data->frame_color[0] = 1.0f;
     imgui_data->frame_color[1] = 0.0f;
     imgui_data->frame_color[2] = 0.0f;
@@ -290,7 +291,8 @@ AppEngine::RenderFrame ()
 AppEngine::AppEngine (android_app* app)
     : m_app(app),
       m_cameraGranted(false),
-      m_camera(nullptr)
+      m_camera(nullptr),
+      m_camera_facing(0)
 {
     memset (&glctx, 0, sizeof (glctx));
 }
@@ -388,6 +390,12 @@ AppEngine::UpdateFrame (void)
 
     if (m_cameraGranted)
     {
+        if (m_camera_facing != imgui_data.camera_facing)
+        {
+            m_camera_facing = imgui_data.camera_facing;
+            DeleteCamera ();
+            CreateCamera (m_camera_facing);
+        }
         UpdateCameraTexture();
     }
 
@@ -408,7 +416,7 @@ AppEngine::InitCamera (void)
         return;
     }
 
-    CreateCamera();
+    CreateCamera (m_camera_facing);
 }
 
 
@@ -426,15 +434,14 @@ AppEngine::DeleteCamera(void)
 
 
 void 
-AppEngine::CreateCamera(void)
+AppEngine::CreateCamera (int facing)
 {
     m_camera = new NDKCamera();
     ASSERT (m_camera, "Failed to Create CameraObject");
 
-    int32_t cam_w, cam_h, cam_fmt;
-    m_camera->MatchCaptureSizeRequest (&cam_w, &cam_h, &cam_fmt);
+    m_camera->SelectCameraFacing (facing);
 
-    m_ImgReader.InitImageReader (cam_w, cam_h);
+    m_ImgReader.InitImageReader (640, 480);
     ANativeWindow *nativeWindow = m_ImgReader.GetNativeWindow();
 
     m_camera->CreateSession (nativeWindow);

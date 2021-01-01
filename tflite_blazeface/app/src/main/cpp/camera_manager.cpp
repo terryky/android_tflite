@@ -22,42 +22,37 @@
 #include "util_debug.h"
 #include "camera_utils.h"
 
-NDKCamera::NDKCamera()
-    : cameraMgr_(nullptr),
-      activeCameraId_(""),
-      outputContainer_(nullptr),
-      captureSessionState_(CaptureSessionState::MAX_STATE)
+
+NDKCamera::NDKCamera ()
+    : mCameraManager(nullptr),
+      mActiveCameraId(""),
+      mSessionState(CaptureSessionState::MAX_STATE)
 {
-    valid_ = false;
+    mCameraIDMap.clear();
+    mCameraManager = ACameraManager_create();
+    ASSERT(mCameraManager, "Failed to create cameraManager");
 
-    requests_.resize(CAPTURE_REQUEST_COUNT);
-    memset(requests_.data(), 0, requests_.size() * sizeof(requests_[0]));
+#if 0
+    PrintCameras (mCameraManager);
+#endif
 
-    cameras_.clear();
-    cameraMgr_ = ACameraManager_create();
-    ASSERT(cameraMgr_, "Failed to create cameraManager");
+    /* Pick up a camera to use */
+    EnumerateCamera ();
+    SelectCameraFacing (CAMERA_FACING_BACK);
+    ASSERT (mActiveCameraId.size(), "Unknown ActiveCameraIdx");
 
-    // Pick up a camera to use
-    EnumerateCamera();
-    ASSERT(activeCameraId_.size(), "Unknown ActiveCameraIdx");
-
-    // Create back facing camera device
-    CALL_MGR(openCamera(cameraMgr_, activeCameraId_.c_str(), GetDeviceListener(),
-                        &cameras_[activeCameraId_].device_));
-
-    CALL_MGR(registerAvailabilityCallback(cameraMgr_, GetManagerListener()));
-
-    valid_ = true;
+    CALL_CAMERA (ACameraManager_registerAvailabilityCallback (mCameraManager, GetManagerListener()));
 }
 
 
-bool NDKCamera::MatchCaptureSizeRequest(int32_t *cam_width, int32_t *cam_height, int32_t *cam_format)
+bool
+NDKCamera::MatchCaptureSizeRequest (int32_t *cam_width, int32_t *cam_height, int32_t *cam_format)
 {
-    ACameraMetadata* metadata;
-    CALL_MGR(getCameraCharacteristics(cameraMgr_, activeCameraId_.c_str(), &metadata));
+    ACameraMetadata *metadata;
+    CALL_CAMERA (ACameraManager_getCameraCharacteristics (mCameraManager, mActiveCameraId.c_str(), &metadata));
 
     ACameraMetadata_const_entry entry;
-    CALL_METADATA(getConstEntry(metadata, ACAMERA_SCALER_AVAILABLE_STREAM_CONFIGURATIONS, &entry));
+    CALL_CAMERA (ACameraMetadata_getConstEntry (metadata, ACAMERA_SCALER_AVAILABLE_STREAM_CONFIGURATIONS, &entry));
 
     for (int i = 0; i < entry.count; i += 4) 
     {
@@ -65,7 +60,8 @@ bool NDKCamera::MatchCaptureSizeRequest(int32_t *cam_width, int32_t *cam_height,
         int32_t width  = entry.data.i32[i + 1];
         int32_t height = entry.data.i32[i + 2];
         int32_t input  = entry.data.i32[i + 3];
-        LOGI ("CAMERA[%3d/%3d] (%4d, %4d) fmt(%08x) input(%d)\n", i, entry.count, width, height, format, input);
+        LOGI ("CAMERA[%3d/%3d] (%4d, %4d) input(%d) fmt(%08x:%s)\n",
+            i, entry.count, width, height, input, format, GetFormatStr (format));
     }
 
     *cam_width  = 640;
@@ -76,136 +72,180 @@ bool NDKCamera::MatchCaptureSizeRequest(int32_t *cam_width, int32_t *cam_height,
 }
 
 void
-NDKCamera::CreateSession(ANativeWindow* previewWindow) 
+NDKCamera::CreateSession (ANativeWindow* previewWindow)
 {
-    // Create output from this app's ANativeWindow, and add into output container
-    requests_[PREVIEW_REQUEST_IDX].outputNativeWindow_ = previewWindow;
-    requests_[PREVIEW_REQUEST_IDX].template_           = TEMPLATE_PREVIEW;
+    /*
+     *  Create camera device
+     *  +-----------------+
+     *  | [ACameraDevice] +----+---> OnDeviceStateChanges()
+     *  |     mDevice     |    +---> OnDeviceErrorChanges()
+     *  +-----------------+
+     */
+    LOGI ("open camera \"%s\"", mActiveCameraId.c_str());
+    CALL_CAMERA (ACameraManager_openCamera (mCameraManager, mActiveCameraId.c_str(),
+                                            GetDeviceListener(), &mDevice));
 
-    CALL_CONTAINER(create(&outputContainer_));
 
-    for (auto& req : requests_)
-    {
-        ANativeWindow_acquire(req.outputNativeWindow_);
-        CALL_OUTPUT(create(req.outputNativeWindow_, &req.sessionOutput_));
-        CALL_CONTAINER(add(outputContainer_, req.sessionOutput_));
-        CALL_TARGET(create(req.outputNativeWindow_, &req.target_));
-        CALL_DEV(createCaptureRequest(cameras_[activeCameraId_].device_, req.template_, &req.request_));
-        CALL_REQUEST(addTarget(req.request_, req.target_));
-    }
+    /* use ANativeWindow as ACaptureSessionOutput */
+    LOGI ("mImgReaderNativeWin: %p", previewWindow);
+    mImgReaderNativeWin = previewWindow;
+    ANativeWindow_acquire (mImgReaderNativeWin);    /* ref counter ++ */
 
-    // Create a capture session for the given preview request
-    captureSessionState_ = CaptureSessionState::READY;
-    CALL_DEV(createCaptureSession(cameras_[activeCameraId_].device_,
-                                  outputContainer_, GetSessionListener(), &captureSession_));
+    /*
+     *  Create capture session
+     *  +-----------------------------------------------------------+
+     *  |                       mSession                            +----+---> OnSessionClosed()
+     *  +-----------------------------------------------------------+    +---> OnSessionReady ()
+     *  | [ACaptureSessionOutputContainer]  [ACaptureSessionOutput] |    +---> OnSessionActive()
+     *  |            mOutputs ----------------> mImgReaderOutput    |
+     *  |                                     mImgReaderNativeWin   |
+     *  +-----------------------------------------------------------+
+     */
+    LOGI ("Create capture session");
+    CALL_CAMERA (ACaptureSessionOutputContainer_create (&mOutputs));
+    CALL_CAMERA (ACaptureSessionOutput_create (mImgReaderNativeWin, &mImgReaderOutput));
+    CALL_CAMERA (ACaptureSessionOutputContainer_add (mOutputs, mImgReaderOutput));
+
+    mSessionState = CaptureSessionState::READY;
+    CALL_CAMERA (ACameraDevice_createCaptureSession (mDevice, mOutputs, GetSessionListener(), &mSession));
+
+    /*
+     *  Create capture request
+     *    [TEMPLATE_RECORD ] stable frame rate is used, and post-processing is set for recording quality.
+     *    [TEMPLATE_PREVIEW] high frame rate is given priority over the highest-quality post-processing.
+     *
+     *  +-----------------------------------------------+
+     *  | [ACaptureRequest]       [ACameraOutputTarget] |
+     *  |  mCaptureRequest ------> mReqImgReaderOutput  |
+     *  |                          mImgReaderNativeWin  |
+     *  +-----------------------------------------------+
+     */
+    LOGI ("Create capture request");
+    ACameraDevice_request_template req_template = TEMPLATE_RECORD;
+    CALL_CAMERA (ACameraDevice_createCaptureRequest (mDevice, req_template, &mCaptureRequest));
+
+    CALL_CAMERA (ACameraOutputTarget_create (mImgReaderNativeWin, &mReqImgReaderOutput));
+    CALL_CAMERA (ACaptureRequest_addTarget (mCaptureRequest, mReqImgReaderOutput));
+
+    LOGI ("CreateSession() done.");
 }
 
 NDKCamera::~NDKCamera() {
-    valid_ = false;
+    LOGI ("~NDKCamera()");
 
-    // stop session if it is on:
-    if (captureSessionState_ == CaptureSessionState::ACTIVE) 
+    /* Stop session if it is on: */
+    if (mSessionState == CaptureSessionState::ACTIVE)
     {
-        ACameraCaptureSession_stopRepeating(captureSession_);
+        ACameraCaptureSession_stopRepeating (mSession);
     }
-    ACameraCaptureSession_close(captureSession_);
+    ACameraCaptureSession_close (mSession);
 
-    for (auto& req : requests_) 
+    /* Destroy capture request */
+    CALL_CAMERA (ACaptureRequest_removeTarget (mCaptureRequest, mReqImgReaderOutput));
+    ACaptureRequest_free (mCaptureRequest);
+    ACameraOutputTarget_free (mReqImgReaderOutput);
+
+    /* Destroy capture session */
+    CALL_CAMERA (ACaptureSessionOutputContainer_remove (mOutputs, mImgReaderOutput));
+    ACaptureSessionOutput_free (mImgReaderOutput);
+    ACaptureSessionOutputContainer_free (mOutputs);
+
+    ANativeWindow_release (mImgReaderNativeWin);     /* ref counter -- */
+
+    if (mDevice)
     {
-        CALL_REQUEST(removeTarget(req.request_, req.target_));
-        ACaptureRequest_free(req.request_);
-        ACameraOutputTarget_free(req.target_);
-
-        CALL_CONTAINER(remove(outputContainer_, req.sessionOutput_));
-        ACaptureSessionOutput_free(req.sessionOutput_);
-
-        ANativeWindow_release(req.outputNativeWindow_);
+        CALL_CAMERA (ACameraDevice_close (mDevice));
     }
-
-    requests_.resize(0);
-    ACaptureSessionOutputContainer_free(outputContainer_);
-
-    for (auto& cam : cameras_) 
+    mCameraIDMap.clear();
+    if (mCameraManager)
     {
-        if (cam.second.device_) 
-        {
-            CALL_DEV(close(cam.second.device_));
-        }
-    }
-    cameras_.clear();
-    if (cameraMgr_) 
-    {
-        CALL_MGR(unregisterAvailabilityCallback(cameraMgr_, GetManagerListener()));
-        ACameraManager_delete(cameraMgr_);
-        cameraMgr_ = nullptr;
+        CALL_CAMERA (ACameraManager_unregisterAvailabilityCallback (mCameraManager, GetManagerListener()));
+        ACameraManager_delete (mCameraManager);
+        mCameraManager = nullptr;
     }
 }
 
 
 void
-NDKCamera::EnumerateCamera() 
+NDKCamera::EnumerateCamera ()
 {
-    ACameraIdList* cameraIds = nullptr;
-    CALL_MGR(getCameraIdList(cameraMgr_, &cameraIds));
+    /* Create a list of currently connected camera devices */
+    ACameraIdList *cameraIds = nullptr;
+    CALL_CAMERA (ACameraManager_getCameraIdList (mCameraManager, &cameraIds));
 
-    for (int i = 0; i < cameraIds->numCameras; ++i) 
+    for (int i = 0; i < cameraIds->numCameras; i++)
     {
-        const char* id = cameraIds->cameraIds[i];
+        const char *id = cameraIds->cameraIds[i];
+        LOGI ("CAMERA_ID[%d/%d] \"%s\"", i, cameraIds->numCameras, id);
 
-        ACameraMetadata* metadataObj;
-        CALL_MGR(getCameraCharacteristics(cameraMgr_, id, &metadataObj));
+        /* Query the capabilities of a camera device. */
+        ACameraMetadata *metadataObj;
+        CALL_CAMERA (ACameraManager_getCameraCharacteristics (mCameraManager, id, &metadataObj));
 
+        /* List all the entry tags in input ACameraMetadata. */
         int32_t count = 0;
-        const uint32_t* tags = nullptr;
-        ACameraMetadata_getAllTags(metadataObj, &count, &tags);
+        const uint32_t *tags = nullptr;
+        CALL_CAMERA (ACameraMetadata_getAllTags (metadataObj, &count, &tags));
 
-        for (int tagIdx = 0; tagIdx < count; ++tagIdx) 
+        for (int tagIdx = 0; tagIdx < count; tagIdx++)
         {
-            if (ACAMERA_LENS_FACING == tags[tagIdx]) 
+            if (ACAMERA_LENS_FACING == tags[tagIdx])
             {
                 ACameraMetadata_const_entry lensInfo = {0,};
+                CALL_CAMERA (ACameraMetadata_getConstEntry (metadataObj, tags[tagIdx], &lensInfo));
 
-                CALL_METADATA(getConstEntry(metadataObj, tags[tagIdx], &lensInfo));
                 CameraId cam(id);
+                cam.index   = i;
                 cam.facing_ = static_cast<acamera_metadata_enum_android_lens_facing_t>(lensInfo.data.u8[0]);
-                cam.owner_  = false;
-                cam.device_ = nullptr;
-                cameras_[cam.id_] = cam;
-
-                /* select BACK_FACING camera */
-                if (cam.facing_ == ACAMERA_LENS_FACING_BACK) 
-                {
-                    activeCameraId_ = cam.id_;
-                }
+                mCameraIDMap[cam.id_] = cam;
                 break;
             }
         }
         ACameraMetadata_free(metadataObj);
     }
 
-    ASSERT(cameras_.size(), "No Camera Available on the device");
+    ASSERT(mCameraIDMap.size(), "No Camera Available on the device");
+    ACameraManager_deleteCameraIdList (cameraIds);
+}
 
-    // if no back facing camera found, pick up the first one to use...
-    if (activeCameraId_.length() == 0) 
+bool
+NDKCamera::SelectCameraFacing (int req_facing)
+{
+    std::map<std::string, CameraId>::iterator it;
+    for (it = mCameraIDMap.begin(); it != mCameraIDMap.end(); it++)
     {
-        activeCameraId_ = cameras_.begin()->second.id_;
+        CameraId *cam = &it->second;
+        LOGI ("CAMERA[%d] id: %s: facing=%d", cam->index, cam->id_.c_str(), cam->facing_);
+
+        if ((req_facing == CAMERA_FACING_BACK  && cam->facing_ == ACAMERA_LENS_FACING_BACK) ||
+            (req_facing == CAMERA_FACING_FRONT && cam->facing_ == ACAMERA_LENS_FACING_FRONT))
+        {
+            mActiveCameraId = cam->id_;
+            return true;
+        }
     }
-    ACameraManager_deleteCameraIdList(cameraIds);
+
+    // if no match facing camera found, pick up the first one to use...
+    if (mActiveCameraId.length() == 0)
+    {
+        mActiveCameraId = mCameraIDMap.begin()->second.id_;
+    }
+    return false;
 }
 
 
 /* Toggle preview start/stop */
 void
-NDKCamera::StartPreview(bool start) 
+NDKCamera::StartPreview (bool start)
 {
-    if (start) 
+    if (start)
     {
-        CALL_SESSION(setRepeatingRequest(captureSession_, nullptr, 1,
-                                 &requests_[PREVIEW_REQUEST_IDX].request_, nullptr));
+        CALL_CAMERA (ACameraCaptureSession_setRepeatingRequest(mSession, nullptr, 1,
+                                                               &mCaptureRequest, nullptr));
     }
-    else if (captureSessionState_ == CaptureSessionState::ACTIVE) 
+    else if (mSessionState == CaptureSessionState::ACTIVE)
     {
-        ACameraCaptureSession_stopRepeating(captureSession_);
+        CALL_CAMERA (ACameraCaptureSession_stopRepeating(mSession));
     }
 }
 
@@ -213,23 +253,29 @@ NDKCamera::StartPreview(bool start)
 
 /* ----------------------------------------------------------------- *
  *  Camera Manager Listener object
+ *
+ *      ACameraManager_AvailabilityCallbacks
+ *          |
+ *          +-- OnCameraAvailable()
+ *          +-- OnCameraUnavailable()
  * ----------------------------------------------------------------- */
-void OnCameraAvailable(void* ctx, const char* id) 
+static void
+OnCameraAvailable (void *ctx, const char *id)
 {
-    reinterpret_cast<NDKCamera*>(ctx)->OnCameraStatusChanged(id, true);
+    reinterpret_cast<NDKCamera*>(ctx)->OnCameraStatusChanged (id, true);
 }
 
-void OnCameraUnavailable(void* ctx, const char* id) 
+static void
+OnCameraUnavailable (void *ctx, const char *id)
 {
-    reinterpret_cast<NDKCamera*>(ctx)->OnCameraStatusChanged(id, false);
+    reinterpret_cast<NDKCamera*>(ctx)->OnCameraStatusChanged (id, false);
 }
 
-void NDKCamera::OnCameraStatusChanged(const char* id, bool available) 
+void
+NDKCamera::OnCameraStatusChanged(const char *id, bool available)
 {
-    if (valid_) 
-    {
-        cameras_[std::string(id)].available_ = available ? true : false;
-    }
+    LOGI ("[NDKCamera::OnCameraStatusChanged] id: %s: available: %d", id, available);
+    mCameraIDMap[std::string(id)].available_ = available;
 }
 
 ACameraManager_AvailabilityCallbacks *
@@ -243,21 +289,29 @@ NDKCamera::GetManagerListener()
     return &cameraMgrListener;
 }
 
+
 /* ----------------------------------------------------------------- *
  *  CameraDevice callbacks
+ *
+ *      ACameraDevice_stateCallbacks
+ *          |
+ *          +-- OnDeviceStateChanges()
+ *          +-- OnDeviceErrorChanges()
  * ----------------------------------------------------------------- */
-void OnDeviceStateChanges(void* ctx, ACameraDevice* dev) 
+static void
+OnDeviceStateChanges (void *ctx, ACameraDevice *dev)
 {
-    reinterpret_cast<NDKCamera*>(ctx)->OnDeviceState(dev);
+    reinterpret_cast<NDKCamera*>(ctx)->OnDeviceState (dev);
 }
 
-void OnDeviceErrorChanges(void* ctx, ACameraDevice* dev, int err) 
+static void
+OnDeviceErrorChanges (void *ctx, ACameraDevice *dev, int err)
 {
-    reinterpret_cast<NDKCamera*>(ctx)->OnDeviceError(dev, err);
+    reinterpret_cast<NDKCamera*>(ctx)->OnDeviceError (dev, err);
 }
 
 ACameraDevice_stateCallbacks *
-NDKCamera::GetDeviceListener() 
+NDKCamera::GetDeviceListener()
 {
     static ACameraDevice_stateCallbacks cameraDeviceListener = {
         .context        = this,
@@ -268,35 +322,33 @@ NDKCamera::GetDeviceListener()
 }
 
 void
-NDKCamera::OnDeviceState(ACameraDevice* dev) 
+NDKCamera::OnDeviceState (ACameraDevice *dev)
 {
     std::string id(ACameraDevice_getId(dev));
     LOGW("device %s is disconnected", id.c_str());
 
-    cameras_[id].available_ = false;
-    ACameraDevice_close(cameras_[id].device_);
-    cameras_.erase(id);
+    mCameraIDMap[id].available_ = false;
+    ACameraDevice_close (dev);
+    mCameraIDMap.erase(id);
 }
 
 void
-NDKCamera::OnDeviceError(ACameraDevice* dev, int err) 
+NDKCamera::OnDeviceError (ACameraDevice *dev, int err)
 {
     std::string id(ACameraDevice_getId(dev));
     LOGI("CameraDevice %s is in error %#x", id.c_str(), err);
 
-    CameraId& cam = cameras_[id];
+    CameraId& cam = mCameraIDMap[id];
 
     switch (err) {
     case ERROR_CAMERA_IN_USE:
         cam.available_ = false;
-        cam.owner_     = false;
         break;
     case ERROR_CAMERA_SERVICE:
     case ERROR_CAMERA_DEVICE:
     case ERROR_CAMERA_DISABLED:
     case ERROR_MAX_CAMERAS_IN_USE:
         cam.available_ = false;
-        cam.owner_     = false;
         break;
     default:
       LOGI("Unknown Camera Device Error: %#x", err);
@@ -306,27 +358,36 @@ NDKCamera::OnDeviceError(ACameraDevice* dev, int err)
 
 /* ----------------------------------------------------------------- *
  *  CaptureSession state callbacks
+ *
+ *      ACameraCaptureSession_stateCallbacks
+ *          |
+ *          +-- OnSessionClosed()
+ *          +-- OnSessionReady()
+ *          +-- OnSessionActive()
  * ----------------------------------------------------------------- */
-void OnSessionClosed(void* ctx, ACameraCaptureSession* ses) 
+static void
+OnSessionClosed (void *ctx, ACameraCaptureSession *ses)
 {
-    LOGW("session %p closed", ses);
-    reinterpret_cast<NDKCamera*>(ctx)->OnSessionState(ses, CaptureSessionState::CLOSED);
+    LOGI ("OnSessionClosed (%p)", ses);
+    reinterpret_cast<NDKCamera*>(ctx)->OnSessionState (ses, CaptureSessionState::CLOSED);
 }
 
-void OnSessionReady(void* ctx, ACameraCaptureSession* ses) 
+static void
+OnSessionReady (void *ctx, ACameraCaptureSession *ses)
 {
-    LOGW("session %p ready", ses);
-    reinterpret_cast<NDKCamera*>(ctx)->OnSessionState(ses, CaptureSessionState::READY);
+    LOGI ("OnSessionReady (%p)", ses);
+    reinterpret_cast<NDKCamera*>(ctx)->OnSessionState (ses, CaptureSessionState::READY);
 }
 
-void OnSessionActive(void* ctx, ACameraCaptureSession* ses) 
+static void
+OnSessionActive (void *ctx, ACameraCaptureSession *ses)
 {
-    LOGW("session %p active", ses);
-    reinterpret_cast<NDKCamera*>(ctx)->OnSessionState(ses, CaptureSessionState::ACTIVE);
+    LOGI ("OnSessionActive (%p)", ses);
+    reinterpret_cast<NDKCamera*>(ctx)->OnSessionState (ses, CaptureSessionState::ACTIVE);
 }
 
 ACameraCaptureSession_stateCallbacks *
-NDKCamera::GetSessionListener() 
+NDKCamera::GetSessionListener()
 {
     static ACameraCaptureSession_stateCallbacks sessionListener = {
         .context  = this,
@@ -338,17 +399,16 @@ NDKCamera::GetSessionListener()
 }
 
 void 
-NDKCamera::OnSessionState(ACameraCaptureSession* ses, CaptureSessionState state) 
+NDKCamera::OnSessionState (ACameraCaptureSession *ses, CaptureSessionState state)
 {
-    if (!ses || ses != captureSession_) 
+    if (!ses || ses != mSession)
     {
-        LOGW("CaptureSession is %s", (ses ? "NOT our session" : "NULL"));
+        LOGW ("CaptureSession is %s", (ses ? "NOT our session" : "NULL"));
         return;
     }
-
     ASSERT(state < CaptureSessionState::MAX_STATE, "Wrong state %d", state);
 
-    captureSessionState_ = state;
+    mSessionState = state;
 }
 
 
@@ -367,7 +427,7 @@ ImageReaderHelper::ImageReaderHelper ()
 ImageReaderHelper::~ImageReaderHelper()
 {
     mAcquiredImage.reset();
-    if (mImgReaderAnw)
+    if (mImgReaderNativeWin)
     {
         AImageReader_delete (mImgReader);
         // No need to call ANativeWindow_release on imageReaderAnw
@@ -376,9 +436,9 @@ ImageReaderHelper::~ImageReaderHelper()
 
 
 static void
-OnImageAvailable (void* obj, AImageReader*)
+OnImageAvailable (void *context, AImageReader *reader)
 {
-    ImageReaderHelper *thiz = reinterpret_cast<ImageReaderHelper *>(obj);
+    ImageReaderHelper *thiz = reinterpret_cast<ImageReaderHelper *>(context);
     thiz->HandleImageAvailable();
 }
 
@@ -394,10 +454,12 @@ ImageReaderHelper::HandleImageAvailable()
 int
 ImageReaderHelper::InitImageReader (int width, int height)
 {
+    LOGI ("InitImageReader(%d, %d)", width, height);
+
     mWidth  = width;
     mHeight = height;
 
-    if (mImgReader != nullptr || mImgReaderAnw != nullptr)
+    if (mImgReader != nullptr || mImgReaderNativeWin != nullptr)
     {
         ReleaseImageReader ();
     }
@@ -410,7 +472,7 @@ ImageReaderHelper::InitImageReader (int width, int height)
         return -1;
     }
 
-    /* Set Callback fuction */
+    /* Set Callback fuction which is called when a new image is available */
     AImageReader_ImageListener readerAvailableCb {this, OnImageAvailable};
     media_status_t stat = AImageReader_setImageListener (mImgReader, &readerAvailableCb);
     if (stat != AMEDIA_OK)
@@ -420,8 +482,8 @@ ImageReaderHelper::InitImageReader (int width, int height)
     }
 
     /* ANativeWindow */
-    stat = AImageReader_getWindow (mImgReader, &mImgReaderAnw);
-    if (stat != AMEDIA_OK || mImgReaderAnw == nullptr)
+    stat = AImageReader_getWindow (mImgReader, &mImgReaderNativeWin);
+    if (stat != AMEDIA_OK || mImgReaderNativeWin == nullptr)
     {
         DBG_LOGE ("Failed to get ANativeWindow from AImageReader, ret=%d", ret);
         return -1;
@@ -433,13 +495,15 @@ ImageReaderHelper::InitImageReader (int width, int height)
 int
 ImageReaderHelper::ReleaseImageReader ()
 {
+    LOGI ("ReleaseImageReader()");
+
     mAcquiredImage.reset();
-    if (mImgReaderAnw)
+    if (mImgReaderNativeWin)
     {
         AImageReader_delete (mImgReader);
     }
-    mImgReader    = nullptr;
-    mImgReaderAnw = nullptr;
+    mImgReader          = nullptr;
+    mImgReaderNativeWin = nullptr;
 
     return 0;
 }
@@ -455,7 +519,7 @@ ImageReaderHelper::GetBufferDimension (int *width, int *height)
 ANativeWindow *
 ImageReaderHelper::GetNativeWindow()
 {
-    return mImgReaderAnw;
+    return mImgReaderNativeWin;
 }
 
 
@@ -467,19 +531,18 @@ ImageReaderHelper::GetCurrentHWBuffer (AHardwareBuffer **outBuffer)
     int ret;
     if (mAvailableImages > 0)
     {
-        AImage *outImage = nullptr;
-
         mAvailableImages -= 1;  /* decrement acquired image nums */
 
-        ret = AImageReader_acquireLatestImage (mImgReader, &outImage);
-        if (ret != AMEDIA_OK || outImage == nullptr)
+        AImage *aimage = nullptr;
+        ret = AImageReader_acquireLatestImage (mImgReader, &aimage);
+        if (ret != AMEDIA_OK || aimage == nullptr)
         {
-            DBG_LOGE("Failed to acquire image, ret=%d, outIamge=%p.", ret, outImage);
+            DBG_LOGE("Failed to acquire image, ret=%d, outIamge=%p.", ret, aimage);
         }
         else
         {
             // Any exisitng in mAcquiredImage will be deleted and released automatically.
-            mAcquiredImage.reset (outImage);
+            mAcquiredImage.reset (aimage);
         }
     }
 

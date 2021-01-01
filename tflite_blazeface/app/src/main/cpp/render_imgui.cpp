@@ -92,7 +92,7 @@ static void
 render_gui (imgui_data_t *imgui_data)
 {
     int win_w = 460;
-    int win_h = 200;
+    int win_h = 250;
     int win_y = 50;
 
     s_win_num = 0;
@@ -102,6 +102,11 @@ render_gui (imgui_data_t *imgui_data)
     ImGui::SetNextWindowSize(ImVec2(_X(win_w),                _Y(win_h)), ImGuiCond_FirstUseEver);
     ImGui::Begin("Options");
     {
+        if (ImGui::Button("Change Camera"))
+        {
+            imgui_data->camera_facing = 1 - imgui_data->camera_facing;
+        }
+
         ImGui::SliderFloat("Score thresh", &imgui_data->blazeface_config.score_thresh, 0.0f, 1.0f);
         ImGui::SliderFloat("IOU   thresh", &imgui_data->blazeface_config.iou_thresh,   0.0f, 1.0f);
 

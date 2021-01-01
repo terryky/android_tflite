@@ -28,75 +28,75 @@
 #include "util_debug.h"
 
 enum class CaptureSessionState : int32_t {
-  READY = 0,  // session is ready
-  ACTIVE,     // session is busy
-  CLOSED,     // session is closed(by itself or a new session evicts)
-  MAX_STATE
+    READY = 0,  // session is ready
+    ACTIVE,     // session is busy
+    CLOSED,     // session is closed(by itself or a new session evicts)
+    MAX_STATE
 };
 
-enum PREVIEW_INDICES {
-  PREVIEW_REQUEST_IDX = 0,
-  CAPTURE_REQUEST_COUNT,
-};
-
-struct CaptureRequestInfo {
-  ANativeWindow* outputNativeWindow_;
-  ACaptureSessionOutput* sessionOutput_;
-  ACameraOutputTarget* target_;
-  ACaptureRequest* request_;
-  ACameraDevice_request_template template_;
-  int sessionSequenceId_;
-};
+#define CAMERA_FACING_BACK  0
+#define CAMERA_FACING_FRONT 1
 
 class CameraId;
+
 class NDKCamera {
- private:
-  ACameraManager* cameraMgr_;
-  std::map<std::string, CameraId> cameras_;
-  std::string activeCameraId_;
+private:
+    ACameraManager                  *mCameraManager;
+    std::map<std::string, CameraId> mCameraIDMap;
+    std::string                     mActiveCameraId;
 
-  std::vector<CaptureRequestInfo> requests_;
+    /* Camera device */
+    ACameraDevice                   *mDevice {nullptr};
 
-  ACaptureSessionOutputContainer* outputContainer_;
-  ACameraCaptureSession* captureSession_;
-  CaptureSessionState captureSessionState_;
+    ANativeWindow                   *mImgReaderNativeWin {nullptr};
 
-  volatile bool valid_;
+    /* Capture session */
+    ACaptureSessionOutputContainer  *mOutputs {nullptr};
+    ACaptureSessionOutput           *mImgReaderOutput {nullptr};
+    ACameraCaptureSession           *mSession {nullptr};
+    CaptureSessionState             mSessionState;
 
-  ACameraManager_AvailabilityCallbacks* GetManagerListener();
-  ACameraDevice_stateCallbacks* GetDeviceListener();
-  ACameraCaptureSession_stateCallbacks* GetSessionListener();
+    /* Capture request */
+    ACaptureRequest                 *mCaptureRequest {nullptr};
+    ACameraOutputTarget             *mReqImgReaderOutput {nullptr};
 
- public:
-  NDKCamera();
-  ~NDKCamera();
-  void EnumerateCamera(void);
-  bool MatchCaptureSizeRequest(int32_t *cam_width, int32_t *cam_height, int32_t *cam_format);
-  void CreateSession(ANativeWindow* previewWindow);
-  void OnCameraStatusChanged(const char* id, bool available);
-  void OnDeviceState(ACameraDevice* dev);
-  void OnDeviceError(ACameraDevice* dev, int err);
-  void OnSessionState(ACameraCaptureSession* ses, CaptureSessionState state);
-  void StartPreview(bool start);
+    ACameraManager_AvailabilityCallbacks    *GetManagerListener();
+    ACameraDevice_stateCallbacks            *GetDeviceListener();
+    ACameraCaptureSession_stateCallbacks    *GetSessionListener();
+
+public:
+    NDKCamera ();
+    ~NDKCamera ();
+
+    void EnumerateCamera (void);
+    bool SelectCameraFacing (int req_facing);
+    bool MatchCaptureSizeRequest (int32_t *cam_width, int32_t *cam_height, int32_t *cam_format);
+
+    void CreateSession (ANativeWindow *previewWindow);
+
+    void OnCameraStatusChanged (const char *id, bool available);
+    void OnDeviceState (ACameraDevice *dev);
+    void OnDeviceError (ACameraDevice *dev, int err);
+    void OnSessionState (ACameraCaptureSession *ses, CaptureSessionState state);
+    void StartPreview (bool start);
 };
 
 // helper classes to hold enumerated camera
 class CameraId {
- public:
-  ACameraDevice* device_;
-  std::string id_;
-  acamera_metadata_enum_android_lens_facing_t facing_;
-  bool available_;  // free to use ( no other apps are using
-  bool owner_;      // we are the owner of the camera
-  explicit CameraId(const char* id)
-      : device_(nullptr),
-        facing_(ACAMERA_LENS_FACING_FRONT),
-        available_(false),
-        owner_(false) {
-    id_ = id;
-  }
+public:
+    int             index;
+    std::string     id_;
+    acamera_metadata_enum_android_lens_facing_t facing_;
+    bool            available_;  // free to use ( no other apps are using
 
-  explicit CameraId(void) { CameraId(""); }
+    explicit CameraId(const char* id)
+      : facing_(ACAMERA_LENS_FACING_FRONT),
+        available_(false)
+    {
+        id_ = id;
+    }
+
+    explicit CameraId(void) { CameraId(""); }
 };
 
 
@@ -128,8 +128,8 @@ private:
     size_t          mAvailableImages{0};
     ImagePtr        mAcquiredImage {nullptr, AImage_delete};
 
-    AImageReader    *mImgReader    {nullptr};
-    ANativeWindow   *mImgReaderAnw {nullptr};
+    AImageReader    *mImgReader {nullptr};
+    ANativeWindow   *mImgReaderNativeWin {nullptr};
 };
 
 #endif  // CAMERA_NATIVE_CAMERA_H
