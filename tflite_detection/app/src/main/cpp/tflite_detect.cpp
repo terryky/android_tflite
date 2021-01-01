@@ -3,6 +3,7 @@
  * Copyright (c) 2019 terryky1220@gmail.com
  * ------------------------------------------------ */
 #include "util_tflite.h"
+#include "util_debug.h"
 #include "tflite_detect.h"
 #include "detect_postprocess.h"
 
@@ -86,7 +87,7 @@ load_label_map (const char *label_buf, size_t label_size)
 {
     std::string str_label (label_buf);
     std::string str_line;
-    stringstream sstream {str_label};
+    std::stringstream sstream {str_label};
 
     char buf[512];
     char buf_token[512];
@@ -114,7 +115,7 @@ load_label_map (const char *label_buf, size_t label_size)
 
             while ( *p != '"')
                 *q ++ = *p ++;
-            LOGE ("ID[%d] %s\n", id, s_class_name[id]);
+            LOG ("ID[%d] %s\n", id, s_class_name[id]);
         }
     }
     return 0;
