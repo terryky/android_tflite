@@ -9,6 +9,10 @@ Run and measure the performance of TensorFlow Lite GPU Delegate on Android NDK.
 - Lightweight Face Detection.<br>
 [<img src="tflite_blazeface/tflite_blazeface.png" width=500>](https://github.com/terryky/android_tflite/tree/master/tflite_blazeface)
 
+### [Object Detection](https://github.com/terryky/android_tflite/tree/master/tflite_detection)
+- Object Detection using MobileNet SSD.<br>
+[<img src="tflite_detection/tflite_detection.png" width=500>](https://github.com/terryky/android_tflite/tree/master/tflite_detection)
+
 ### [Posenet](https://github.com/terryky/android_tflite/tree/master/tflite_posenet)
 - Pose Estimation.<br>
 [<img src="tflite_posenet/tflite_posenet.png" width=500>](https://github.com/terryky/android_tflite/tree/master/tflite_posenet)
