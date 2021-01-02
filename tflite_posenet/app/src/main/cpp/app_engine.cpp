@@ -3,7 +3,6 @@
  * Copyright (c) 2020 terryky1220@gmail.com
  * ------------------------------------------------ */
 #include <cstdio>
-#include <GLES2/gl2.h>
 #include "util_debug.h"
 #include "util_asset.h"
 #include "util_egl.h"
@@ -11,8 +10,9 @@
 #include "util_pmeter.h"
 #include "util_texture.h"
 #include "util_render2d.h"
-#include "tflite_posenet.h"
 #include "app_engine.h"
+#include "render_imgui.h"
+#include "assertgl.h"
 
 #define UNUSED(x) (void)(x)
 
@@ -22,7 +22,7 @@
 
 /* resize image to DNN network input size and convert to fp32. */
 void
-AppEngine::feed_posenet_image(texture_2d_t *srctex, ssbo_t *ssbo, int win_w, int win_h)
+feed_posenet_image(texture_2d_t *srctex, ssbo_t *ssbo, int win_w, int win_h)
 {
 #if defined (USE_INPUT_SSBO)
     resize_texture_to_ssbo (srctex->texid, ssbo);
@@ -76,9 +76,9 @@ AppEngine::feed_posenet_image(texture_2d_t *srctex, ssbo_t *ssbo, int win_w, int
 
 /* render a bone of skelton. */
 void
-AppEngine::render_bone (int ofstx, int ofsty, int drw_w, int drw_h,
-                        posenet_result_t *pose_ret, int pid,
-                        enum pose_key_id id0, enum pose_key_id id1, float *col)
+render_bone (int ofstx, int ofsty, int drw_w, int drw_h,
+             posenet_result_t *pose_ret, int pid,
+             enum pose_key_id id0, enum pose_key_id id1, float *col)
 {
     float x0 = pose_ret->pose[pid].key[id0].x * drw_w + ofstx;
     float y0 = pose_ret->pose[pid].key[id0].y * drw_h + ofsty;
@@ -95,7 +95,7 @@ AppEngine::render_bone (int ofstx, int ofsty, int drw_w, int drw_h,
 }
 
 void
-AppEngine::render_posenet_result (int x, int y, int w, int h, posenet_result_t *pose_ret)
+render_posenet_result (int x, int y, int w, int h, posenet_result_t *pose_ret)
 {
     float col_red[]    = {1.0f, 0.0f, 0.0f, 1.0f};
     float col_orange[] = {1.0f, 0.6f, 0.0f, 1.0f};
@@ -189,9 +189,9 @@ AppEngine::DrawTFLiteConfigInfo ()
  *     +-+------+-+     +------+
  *                      +------+
  */
-void
-AppEngine::adjust_texture (int win_w, int win_h, int texw, int texh, 
-                           int *dx, int *dy, int *dw, int *dh)
+static void
+adjust_texture (int win_w, int win_h, int texw, int texh, 
+                int *dx, int *dy, int *dw, int *dh)
 {
     float win_aspect = (float)win_w / (float)win_h;
     float tex_aspect = (float)texw  / (float)texh;
@@ -222,8 +222,38 @@ AppEngine::adjust_texture (int win_w, int win_h, int texw, int texh,
     *dh = (int)scaled_h;
 }
 
+#if defined (USE_IMGUI)
+void
+AppEngine::mousemove_cb (int x, int y)
+{
+    imgui_mousemove (x, y);
+}
 
+void
+AppEngine::button_cb (int button, int state, int x, int y)
+{
+    imgui_mousebutton (button, state, x, y);
+}
 
+void
+AppEngine::keyboard_cb (int key, int state, int x, int y)
+{
+}
+#endif
+
+void
+AppEngine::setup_imgui (int win_w, int win_h, imgui_data_t *imgui_data)
+{
+#if defined (USE_IMGUI)
+    //egl_set_motion_func (mousemove_cb);
+    //egl_set_button_func (button_cb);
+    //egl_set_key_func    (keyboard_cb);
+
+    init_imgui (win_w, win_h);
+#endif
+
+    imgui_data->camera_facing  = m_camera_facing;
+}
 
 
 void 
@@ -304,6 +334,9 @@ AppEngine::RenderFrame ()
         draw_dbgstr (glctx.str_glvendor,   10, y); y += 22;
         draw_dbgstr (glctx.str_glrender,   10, y); y += 22;
 
+#if defined (USE_IMGUI)
+        invoke_imgui (&imgui_data);
+#endif
         egl_swap();
     }
     glctx.frame_count ++;
@@ -314,7 +347,7 @@ AppEngine::AppEngine (android_app* app)
     : m_app(app),
       m_cameraGranted(false),
       m_camera(nullptr),
-      m_img_reader(nullptr)
+      m_camera_facing(0)
 {
     memset (&glctx, 0, sizeof (glctx));
 }
@@ -386,6 +419,8 @@ AppEngine::InitGLES (void)
     ret = init_tflite_posenet (NULL, (const char *)m_tflite_model_buf.data(),
                                m_tflite_model_buf.size());
 
+    setup_imgui (w, h, &imgui_data);
+
     glctx.disp_w = w;
     glctx.disp_h = h;
     LoadInputTexture (&glctx.tex_static, (char *)"pakutaso_person.jpg");
@@ -409,6 +444,12 @@ AppEngine::UpdateFrame (void)
 
     if (m_cameraGranted)
     {
+        if (m_camera_facing != imgui_data.camera_facing)
+        {
+            m_camera_facing = imgui_data.camera_facing;
+            DeleteCamera ();
+            CreateCamera (m_camera_facing);
+        }
         UpdateCameraTexture();
     }
 
@@ -419,8 +460,6 @@ AppEngine::UpdateFrame (void)
 /* ---------------------------------------------------------------------------- *
  *  Manage NDKCamera Functions
  * ---------------------------------------------------------------------------- */
-#define MAX_BUF_COUNT 4
-
 void 
 AppEngine::InitCamera (void)
 {
@@ -431,7 +470,7 @@ AppEngine::InitCamera (void)
         return;
     }
 
-    CreateCamera();
+    CreateCamera (m_camera_facing);
 }
 
 
@@ -444,185 +483,76 @@ AppEngine::DeleteCamera(void)
         m_camera = nullptr;
     }
 
-    if (m_img_reader)
-    {
-        AImageReader_delete(m_img_reader);
-        m_img_reader = nullptr;
-    }
+    m_ImgReader.ReleaseImageReader ();
 }
 
 
 void 
-AppEngine::CreateCamera(void) 
+AppEngine::CreateCamera (int facing)
 {
     m_camera = new NDKCamera();
     ASSERT (m_camera, "Failed to Create CameraObject");
 
-    int32_t cam_w, cam_h, cam_fmt;
-    m_camera->MatchCaptureSizeRequest (&cam_w, &cam_h, &cam_fmt);
+    m_camera->SelectCameraFacing (facing);
 
-    media_status_t status;
-    status = AImageReader_new (cam_w, cam_h, cam_fmt, MAX_BUF_COUNT, &m_img_reader);
-    ASSERT (status == AMEDIA_OK, "Failed to create AImageReader");
-
-    ANativeWindow *nativeWindow;
-    status = AImageReader_getWindow (m_img_reader, &nativeWindow);
-    ASSERT (status == AMEDIA_OK, "Could not get ANativeWindow");
+    m_ImgReader.InitImageReader (640, 480);
+    ANativeWindow *nativeWindow = m_ImgReader.GetNativeWindow();
 
     m_camera->CreateSession (nativeWindow);
-
     m_camera->StartPreview (true);
 }
 
 void
 AppEngine::UpdateCameraTexture ()
 {
-    texture_2d_t *input_tex = &glctx.tex_camera;
-    GLuint texid = input_tex->texid;
-    int    cap_w, cap_h;
-    void   *cap_buf;
-
-    GetAppEngine()->AcquireCameraFrame (&cap_buf, &cap_w, &cap_h);
-
-    if (cap_buf == NULL)
+    /* Acquire the latest AHardwareBuffer */
+    AHardwareBuffer *ahw_buf = NULL;
+    int ret = m_ImgReader.GetCurrentHWBuffer (&ahw_buf);
+    if (ret != 0)
         return;
 
-    if (texid == 0)
+    /* Get EGLClientBuffer */
+    EGLClientBuffer egl_buf = eglGetNativeClientBufferANDROID (ahw_buf);
+    if (!egl_buf)
     {
-        create_2d_texture_ex (input_tex, cap_buf, cap_w, cap_h, pixfmt_fourcc('R', 'G', 'B', 'A'));
+        DBG_LOGE("Failed to create EGLClientBuffer");
+        return;
     }
-    else
+
+    /* (Re)Create EGLImage */
+    if (glctx.egl_img != EGL_NO_IMAGE_KHR)
     {
-        glBindTexture (GL_TEXTURE_2D, texid);
-        glTexSubImage2D (GL_TEXTURE_2D, 0, 0, 0, cap_w, cap_h, GL_RGBA, GL_UNSIGNED_BYTE, cap_buf);
+        eglDestroyImageKHR (egl_get_display(), glctx.egl_img);
+        glctx.egl_img = EGL_NO_IMAGE_KHR;
     }
+
+    EGLint attrs[] = {EGL_IMAGE_PRESERVED_KHR, EGL_TRUE, EGL_NONE,};
+    glctx.egl_img = eglCreateImageKHR (egl_get_display(), EGL_NO_CONTEXT,
+                                       EGL_NATIVE_BUFFER_ANDROID, egl_buf, attrs);
+
+    /* Bind to GL_TEXTURE_EXTERNAL_OES */
+    texture_2d_t *input_tex = &glctx.tex_camera;
+    if (input_tex->texid == 0)
+    {
+        GLuint texid;
+        glGenTextures (1, &texid);
+        glBindTexture (GL_TEXTURE_EXTERNAL_OES, texid);
+
+        glTexParameterf (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameterf (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameterf (GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameterf (GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+        input_tex->texid  = texid;
+        input_tex->format = pixfmt_fourcc('E', 'X', 'T', 'X');
+        m_ImgReader.GetBufferDimension (&input_tex->width, &input_tex->height);
+    }
+    glBindTexture (GL_TEXTURE_EXTERNAL_OES, input_tex->texid);
+
+    glEGLImageTargetTexture2DOES (GL_TEXTURE_EXTERNAL_OES, glctx.egl_img);
+    GLASSERT ();
 
     glctx.tex_camera_valid = true;
-}
-
-
-
-/**
- * Helper function for YUV_420 to RGB conversion. Courtesy of Tensorflow
- * ImageClassifier Sample:
- * https://github.com/tensorflow/tensorflow/blob/master/tensorflow/examples/android/jni/yuv2rgb.cc
- * The difference is that here we have to swap UV plane when calling it.
- */
-#ifndef MAX
-#define MAX(a, b)           \
-  ({                        \
-    __typeof__(a) _a = (a); \
-    __typeof__(b) _b = (b); \
-    _a > _b ? _a : _b;      \
-  })
-#define MIN(a, b)           \
-  ({                        \
-    __typeof__(a) _a = (a); \
-    __typeof__(b) _b = (b); \
-    _a < _b ? _a : _b;      \
-  })
-#endif
-
-// This value is 2 ^ 18 - 1, and is used to clamp the RGB values before their
-// ranges are normalized to eight bits.
-static const int kMaxChannelValue = 262143;
-
-static inline uint32_t
-YUV2RGB(int nY, int nU, int nV)
-{
-    nY -= 16;
-    nU -= 128;
-    nV -= 128;
-    if (nY < 0) nY = 0;
-
-    // This is the floating point equivalent. We do the conversion in integer
-    // because some Android devices do not have floating point in hardware.
-    // nR = (int)(1.164 * nY + 1.596 * nV);
-    // nG = (int)(1.164 * nY - 0.813 * nV - 0.391 * nU);
-    // nB = (int)(1.164 * nY + 2.018 * nU);
-
-    int nR = (int)(1192 * nY + 1634 * nV);
-    int nG = (int)(1192 * nY - 833 * nV - 400 * nU);
-    int nB = (int)(1192 * nY + 2066 * nU);
-
-    nR = MIN(kMaxChannelValue, MAX(0, nR));
-    nG = MIN(kMaxChannelValue, MAX(0, nG));
-    nB = MIN(kMaxChannelValue, MAX(0, nB));
-
-    nR = (nR >> 10) & 0xff;
-    nG = (nG >> 10) & 0xff;
-    nB = (nB >> 10) & 0xff;
-
-    return 0xff000000 | (nR << 16) | (nG << 8) | nB;
-}
-
-void
-AppEngine::AcquireCameraFrame (void **cap_buf, int *cap_w, int *cap_h)
-{
-    static uint32_t *s_cap_buf = NULL;
-
-    *cap_buf = NULL;
-    *cap_w   = 0;
-    *cap_h   = 0;
-
-    if (!m_img_reader) 
-        return;
-
-    AImage *image;
-    media_status_t status = AImageReader_acquireLatestImage(m_img_reader, &image);
-    if (status != AMEDIA_OK) 
-    {
-        return;
-    }
-
-    int32_t img_w, img_h;
-    int32_t yStride, uvStride;
-    uint8_t *yPixel, *uPixel, *vPixel;
-    int32_t yLen, uLen, vLen;
-    int32_t uvPixelStride;
-    AImageCropRect srcRect;
-
-    AImage_getWidth           (image, &img_w);
-    AImage_getHeight          (image, &img_h);
-    AImage_getPlaneRowStride  (image, 0, &yStride);
-    AImage_getPlaneRowStride  (image, 1, &uvStride);
-    AImage_getPlaneData       (image, 0, &yPixel, &yLen);
-    AImage_getPlaneData       (image, 1, &vPixel, &vLen);
-    AImage_getPlaneData       (image, 2, &uPixel, &uLen);
-    AImage_getPlanePixelStride(image, 1, &uvPixelStride);
-    AImage_getCropRect        (image, &srcRect);
-
-    int32_t width  = srcRect.right  - srcRect.left;
-    int32_t height = srcRect.bottom - srcRect.top ;
-    int32_t x, y;
-
-    if (s_cap_buf == NULL)
-    {
-        s_cap_buf = (uint32_t *)calloc (4, img_w * img_h);
-    }
-
-    uint32_t *out = s_cap_buf;
-    for (y = 0; y < height; y++) 
-    {
-        const uint8_t *pY = yPixel + yStride * (y + srcRect.top) + srcRect.left;
-
-        int32_t uv_row_start = uvStride * ((y + srcRect.top) >> 1);
-        const uint8_t *pU = uPixel + uv_row_start + (srcRect.left >> 1);
-        const uint8_t *pV = vPixel + uv_row_start + (srcRect.left >> 1);
-
-        for (x = 0; x < width; x++) 
-        {
-            const int32_t uv_offset = (x >> 1) * uvPixelStride;
-            out[x] = YUV2RGB (pY[x], pU[uv_offset], pV[uv_offset]);
-        }
-        out += img_w;
-    }
-
-    AImage_delete (image);
-
-    *cap_buf = s_cap_buf;
-    *cap_w   = img_w;
-    *cap_h   = img_h;
 }
 
 

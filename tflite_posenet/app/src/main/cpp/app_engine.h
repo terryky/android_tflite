@@ -9,11 +9,17 @@
 #include <android_native_app_glue.h>
 #include <functional>
 #include <thread>
+#include <EGL/egl.h>
+#include <EGL/eglext.h>
+#include <GLES/gl.h>
+#include <GLES/glext.h>
 #include <GLES2/gl2.h>
 
 #include "util_texture.h"
 #include "camera_manager.h"
+#include "render_imgui.h"
 #include "tflite_posenet.h"
+#include "gestureDetector.h"
 
 typedef struct gles_ctx {
     int initdone;
@@ -28,6 +34,7 @@ typedef struct gles_ctx {
     bool tex_camera_valid;
     texture_2d_t tex_static;
     texture_2d_t tex_camera;
+    EGLImage egl_img;
 } gles_ctx_t;
 
 
@@ -47,9 +54,8 @@ public:
 
     // Manage NDKCamera Object
     void InitCamera (void);
-    void CreateCamera(void);
-    void DeleteCamera(void);
-    void AcquireCameraFrame (void **cap_buf, int *cap_w, int *cap_h);
+    void CreateCamera (int facing);
+    void DeleteCamera (void);
 
     // OpenGLES Render
     void InitGLES (void);
@@ -57,20 +63,23 @@ public:
     
     void LoadInputTexture (texture_2d_t *tex, char *fname);
     void UpdateCameraTexture ();
-    void adjust_texture (int win_w, int win_h, int texw, int texh,
-                         int *dx, int *dy, int *dw, int *dh);
 
     void UpdateFrame (void);
     void RenderFrame (void);
 
-    void feed_posenet_image (texture_2d_t *srctex, ssbo_t *ssbo, int win_w, int win_h);
     void DrawTFLiteConfigInfo ();
 
-    // Posenet Specific
-    void render_posenet_result (int x, int y, int w, int h, posenet_result_t *pose_ret);
-    void render_bone (int ofstx, int ofsty, int drw_w, int drw_h,
-             posenet_result_t *pose_ret, int pid,
-             enum pose_key_id id0, enum pose_key_id id1, float *col);
+    // IMGUI
+    void setup_imgui (int win_w, int win_h, imgui_data_t *imgui_data);
+
+    /* for touch gesture */
+    ndk_helper::TapDetector        tap_detector_;
+    ndk_helper::DoubletapDetector  doubletap_detector_;
+    ndk_helper::DragDetector       drag_detector_;
+
+    void mousemove_cb (int x, int y);
+    void button_cb (int button, int state, int x, int y);
+    void keyboard_cb (int key, int state, int x, int y);
 
 private:
 
@@ -78,10 +87,13 @@ private:
 
     bool                m_cameraGranted;
     NDKCamera           *m_camera;
-    AImageReader        *m_img_reader;
+    ImageReaderHelper   m_ImgReader;
 
     gles_ctx_t          glctx;
     std::vector<uint8_t> m_tflite_model_buf;
+
+    imgui_data_t        imgui_data;
+    int                 m_camera_facing;
 
 public:
 };
