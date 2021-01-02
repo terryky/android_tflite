@@ -4,7 +4,7 @@
  * ------------------------------------------------ */
 #include "util_tflite.h"
 #include "tflite_deeplab.h"
-
+#include "util_debug.h"
 
 static tflite_interpreter_t s_interpreter;
 static tflite_tensor_t      s_tensor_input;

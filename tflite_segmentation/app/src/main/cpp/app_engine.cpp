@@ -3,8 +3,6 @@
  * Copyright (c) 2020 terryky1220@gmail.com
  * ------------------------------------------------ */
 #include <cstdio>
-#include <GLES2/gl2.h>
-#include "app_engine.h"
 #include "util_debug.h"
 #include "util_asset.h"
 #include "util_egl.h"
@@ -12,207 +10,59 @@
 #include "util_pmeter.h"
 #include "util_texture.h"
 #include "util_render2d.h"
+#include "app_engine.h"
+#include "render_imgui.h"
+#include "assertgl.h"
 
-#define MAX_BUF_COUNT 4
-
-
-AppEngine::AppEngine (android_app* app)
-    : m_app(app),
-      m_cameraGranted(false),
-      m_camera(nullptr),
-      m_img_reader(nullptr)
-{
-    memset (&glctx, 0, sizeof (glctx));
-}
-
-AppEngine::~AppEngine() 
-{
-    DeleteCamera();
-}
+#define UNUSED(x) (void)(x)
 
 
-/* ---------------------------------------------------------------------------- *
- *  Interfaces to android application framework
- * ---------------------------------------------------------------------------- */
-void
-AppEngine::OnAppInitWindow (void)
-{
-    InitGLES();
-    InitCamera();
-}
-
-void
-AppEngine::OnAppTermWindow (void)
-{
-    DeleteCamera();
-    TerminateGLES();
-}
-
-struct android_app *
-AppEngine::AndroidApp (void) const
-{
-    return m_app;
-}
 
 
-/* ---------------------------------------------------------------------------- *
- *  OpenGLES Render Functions
- * ---------------------------------------------------------------------------- */
-void
-AppEngine::LoadInputTexture (input_tex_t *tex, char *fname)
-{
-    int32_t dsp_w = glctx.disp_w;
-    int32_t dsp_h = glctx.disp_h;
-    int32_t img_w, img_h, drw_x, drw_y, drw_w, drw_h;
-    uint8_t *img_buf;
-    GLuint texid;
-
-    img_buf = asset_read_image (AndroidApp()->activity->assetManager, fname, &img_w, &img_h);
-    texid = create_2d_texture ((void *)img_buf, img_w, img_h);
-    asset_free_image (img_buf);
-
-    AdjustTexture (dsp_w, dsp_h, img_w, img_h, &drw_x, &drw_y, &drw_w, &drw_h);
-
-    tex->w = img_w;
-    tex->h = img_h;
-    tex->texid = texid;
-    tex->draw_x = drw_x;
-    tex->draw_y = drw_y;
-    tex->draw_w = drw_w;
-    tex->draw_h = drw_h;
-}
-
-
-/* Adjust the texture size to fit the window size
- *
- *                      Portrait
- *     Landscape        +------+
- *     +-+------+-+     +------+
- *     | |      | |     |      |
- *     | |      | |     |      |
- *     +-+------+-+     +------+
- *                      +------+
- */
-void
-AppEngine::AdjustTexture (int win_w, int win_h, int texw, int texh,
-                          int *dx, int *dy, int *dw, int *dh)
-{
-    float win_aspect = (float)win_w / (float)win_h;
-    float tex_aspect = (float)texw  / (float)texh;
-    float scale;
-    float scaled_w, scaled_h;
-    float offset_x, offset_y;
-
-    if (win_aspect > tex_aspect)
-    {
-        scale = (float)win_h / (float)texh;
-        scaled_w = scale * texw;
-        scaled_h = scale * texh;
-        offset_x = (win_w - scaled_w) * 0.5f;
-        offset_y = 0;
-    }
-    else
-    {
-        scale = (float)win_w / (float)texw;
-        scaled_w = scale * texw;
-        scaled_h = scale * texh;
-        offset_x = 0;
-        offset_y = (win_h - scaled_h) * 0.5f;
-    }
-
-    *dx = (int)offset_x;
-    *dy = (int)offset_y;
-    *dw = (int)scaled_w;
-    *dh = (int)scaled_h;
-}
-
-
-void
-AppEngine::FeedInputImageUI8 (int texid, int win_w, int win_h)
-{
-    int w, h;
-    uint8_t *buf_u8 = (uint8_t *)get_deeplab_input_buf (&w, &h);
-
-    draw_2d_texture (texid, 0, win_h - h, w, h, 1);
-
-#if 0 /* if your platform supports glReadPixles(GL_RGB), use this code. */
-    glPixelStorei (GL_PACK_ALIGNMENT, 1);
-    glReadPixels (0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE, buf);
-#else /* if your platform supports only glReadPixels(GL_RGBA), try this code. */
-    {
-        int x, y;
-        unsigned char *bufRGBA = (unsigned char *)malloc (w * h * 4);
-        unsigned char *pRGBA = bufRGBA;
-        glPixelStorei (GL_PACK_ALIGNMENT, 4);
-        glReadPixels (0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, bufRGBA);
-
-        for (y = 0; y < h; y ++)
-        {
-            for (x = 0; x < w; x ++)
-            {
-                int r = *pRGBA ++;
-                int g = *pRGBA ++;
-                int b = *pRGBA ++;
-                pRGBA ++;          /* skip alpha */
-
-                *buf_u8 ++ = r;
-                *buf_u8 ++ = g;
-                *buf_u8 ++ = b;
-            }
-        }
-        free (bufRGBA);
-    }
-#endif
-}
 
 /* resize image to DNN network input size and convert to fp32. */
 void
-AppEngine::FeedInputImageFP32 (int texid, int win_w, int win_h)
+feed_deeplab_image(texture_2d_t *srctex, int win_w, int win_h)
 {
-    int w, h;
+    int x, y, w, h;
     float *buf_fp32 = (float *)get_deeplab_input_buf (&w, &h);
+    unsigned char *buf_ui8 = NULL;
+    static unsigned char *pui8 = NULL;
 
-    draw_2d_texture (texid, 0, win_h - h, w, h, 1);
+    if (pui8 == NULL)
+        pui8 = (unsigned char *)malloc(w * h * 4);
 
-    int x, y;
-    unsigned char *bufRGBA = (unsigned char *)malloc (w * h * 4);
-    unsigned char *pRGBA = bufRGBA;
+    buf_ui8 = pui8;
+
+    draw_2d_texture_ex (srctex, 0, win_h - h, w, h, 1);
+
     glPixelStorei (GL_PACK_ALIGNMENT, 4);
-    glReadPixels (0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, bufRGBA);
+    glReadPixels (0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, buf_ui8);
 
-    /* convert UI8 [0, 255] ==> FP32 [-1, 1] */
-    float mean = 128.0f;
-    float std  = 128.0f;
+    /* convert UI8 [0, 255] ==> FP32 [ 0, 1] */
+    float mean =   0.0f;
+    float std  = 255.0f;
     for (y = 0; y < h; y ++)
     {
         for (x = 0; x < w; x ++)
         {
-            int r = *pRGBA ++;
-            int g = *pRGBA ++;
-            int b = *pRGBA ++;
-            pRGBA ++;          /* skip alpha */
+            int r = *buf_ui8 ++;
+            int g = *buf_ui8 ++;
+            int b = *buf_ui8 ++;
+            buf_ui8 ++;          /* skip alpha */
             *buf_fp32 ++ = (float)(r - mean) / std;
             *buf_fp32 ++ = (float)(g - mean) / std;
             *buf_fp32 ++ = (float)(b - mean) / std;
         }
     }
-    free (bufRGBA);
+
+    return;
 }
 
 
-void
-AppEngine::FeedInputImage (int texid, int win_w, int win_h)
-{
-    int type = get_deeplab_input_type ();
-    if (type)
-        FeedInputImageUI8  (texid, win_w, win_h);
-    else
-        FeedInputImageFP32 (texid, win_w, win_h);
-}
-
-
-void
-render_deeplab_result (int ofstx, int ofsty, int draw_w, int draw_h, deeplab_result_t *deeplab_ret)
+static void
+render_deeplab_result (int ofstx, int ofsty, int draw_w, int draw_h,
+                       deeplab_result_t *deeplab_ret)
 {
     float *segmap = deeplab_ret->segmentmap;
     int segmap_w  = deeplab_ret->segmentmap_dims[0];
@@ -373,34 +223,110 @@ AppEngine::DrawTFLiteConfigInfo ()
 #endif
     draw_dbgstr_ex (strbuf, glctx.disp_w - 250, 24, 1.0f, col_white, col_bg);
 
-#if defined (USE_QUANT_TFLITE_MODEL)
-    sprintf (strbuf, "MODEL_INTQUANT: ON ");
-    draw_dbgstr_ex (strbuf, glctx.disp_w - 250, 48, 1.0f, col_white, col_bg);
+}
+
+
+/* Adjust the texture size to fit the window size
+ *
+ *                      Portrait
+ *     Landscape        +------+
+ *     +-+------+-+     +------+
+ *     | |      | |     |      |
+ *     | |      | |     |      |
+ *     +-+------+-+     +------+
+ *                      +------+
+ */
+static void
+adjust_texture (int win_w, int win_h, int texw, int texh, 
+                int *dx, int *dy, int *dw, int *dh)
+{
+    float win_aspect = (float)win_w / (float)win_h;
+    float tex_aspect = (float)texw  / (float)texh;
+    float scale;
+    float scaled_w, scaled_h;
+    float offset_x, offset_y;
+
+    if (win_aspect > tex_aspect)
+    {
+        scale = (float)win_h / (float)texh;
+        scaled_w = scale * texw;
+        scaled_h = scale * texh;
+        offset_x = (win_w - scaled_w) * 0.5f;
+        offset_y = 0;
+    }
+    else
+    {
+        scale = (float)win_w / (float)texw;
+        scaled_w = scale * texw;
+        scaled_h = scale * texh;
+        offset_x = 0;
+        offset_y = (win_h - scaled_h) * 0.5f;
+    }
+
+    *dx = (int)offset_x;
+    *dy = (int)offset_y;
+    *dw = (int)scaled_w;
+    *dh = (int)scaled_h;
+}
+
+#if defined (USE_IMGUI)
+void
+AppEngine::mousemove_cb (int x, int y)
+{
+    imgui_mousemove (x, y);
+}
+
+void
+AppEngine::button_cb (int button, int state, int x, int y)
+{
+    imgui_mousebutton (button, state, x, y);
+}
+
+void
+AppEngine::keyboard_cb (int key, int state, int x, int y)
+{
+}
 #endif
+
+void
+AppEngine::setup_imgui (int win_w, int win_h, imgui_data_t *imgui_data)
+{
+#if defined (USE_IMGUI)
+    //egl_set_motion_func (mousemove_cb);
+    //egl_set_button_func (button_cb);
+    //egl_set_key_func    (keyboard_cb);
+
+    init_imgui (win_w, win_h);
+#endif
+
+    imgui_data->camera_facing  = m_camera_facing;
 }
 
 
 void 
 AppEngine::RenderFrame ()
 {
-    input_tex_t *input_tex;
+    texture_2d_t captex;
 
     if (glctx.tex_camera_valid)
-        input_tex = &glctx.tex_camera;
+        captex = glctx.tex_camera;
     else
-        input_tex = &glctx.tex_static;
+        captex = glctx.tex_static;
 
-    GLuint texid = input_tex->texid;
-    int draw_x = input_tex->draw_x;
-    int draw_y = input_tex->draw_y;
-    int draw_w = input_tex->draw_w;
-    int draw_h = input_tex->draw_h;
     int win_w  = glctx.disp_w;
     int win_h  = glctx.disp_h;
     static double ttime[10] = {0}, interval, invoke_ms;
 
+    int draw_x, draw_y, draw_w, draw_h;
+	int texw = captex.width;
+	int texh = captex.height;
+    adjust_texture (win_w, win_h, texw, texh, &draw_x, &draw_y, &draw_w, &draw_h);
+
     glClearColor (0.f, 0.f, 0.f, 1.0f);
 
+    /* --------------------------------------- *
+     *  Render Loop
+     * --------------------------------------- */
     int count = glctx.frame_count;
     {
         deeplab_result_t deeplab_result;
@@ -415,76 +341,103 @@ AppEngine::RenderFrame ()
 
         glClear (GL_COLOR_BUFFER_BIT);
 
-        FeedInputImage (texid, win_w, win_h);
+        /* --------------------------------------- *
+         *  semantic segmentation
+         * --------------------------------------- */
+        feed_deeplab_image (&captex, win_w, win_h);
 
         ttime[2] = pmeter_get_time_ms ();
         invoke_deeplab (&deeplab_result);
         ttime[3] = pmeter_get_time_ms ();
         invoke_ms = ttime[3] - ttime[2];
 
-        /* visualize the object detection results. */
+        /* --------------------------------------- *
+         *  render scene
+         * --------------------------------------- */
         glClear (GL_COLOR_BUFFER_BIT);
-        draw_2d_texture (texid,  draw_x, draw_y, draw_w, draw_h, 0);
+        draw_2d_texture_ex (&captex, draw_x, draw_y, draw_w, draw_h, 0);
         render_deeplab_result (draw_x, draw_y, draw_w, draw_h, &deeplab_result);
 
+#if 0
+        render_deeplab_heatmap (draw_x, draw_y, draw_w, draw_h, &deeplab_result);
+#endif
+
+        /* --------------------------------------- *
+         *  post process
+         * --------------------------------------- */
         DrawTFLiteConfigInfo ();
 
-        /* renderer info */
-        draw_dbgstr (glctx.str_glverstion, 10, 0);
-        draw_dbgstr (glctx.str_glvendor,   10, 22);
-        draw_dbgstr (glctx.str_glrender,   10, 44);
-
-        draw_pmeter (0, 100);
+        draw_pmeter (0, 40);
 
         sprintf (strbuf, "Interval:%5.1f [ms]\nTFLite  :%5.1f [ms]", interval, invoke_ms);
-        draw_dbgstr (strbuf, 10, 80);
+        draw_dbgstr (strbuf, 10, 10);
 
+        /* renderer info */
+		int y = 10 + 22 * 2;
+        draw_dbgstr (glctx.str_glverstion, 10, y); y += 22;
+        draw_dbgstr (glctx.str_glvendor,   10, y); y += 22;
+        draw_dbgstr (glctx.str_glrender,   10, y); y += 22;
+
+#if defined (USE_IMGUI)
+        invoke_imgui (&imgui_data);
+#endif
         egl_swap();
     }
     glctx.frame_count ++;
 }
 
 
-void
-AppEngine::UpdateCameraTexture ()
+AppEngine::AppEngine (android_app* app)
+    : m_app(app),
+      m_cameraGranted(false),
+      m_camera(nullptr),
+      m_camera_facing(0)
 {
-    input_tex_t *input_tex = &glctx.tex_camera;
-    GLuint texid = input_tex->texid;
-    int    cap_w, cap_h;
-    void   *cap_buf;
-
-    GetAppEngine()->AcquireCameraFrame (&cap_buf, &cap_w, &cap_h);
-
-    if (cap_buf == NULL)
-        return;
-
-    if (texid == 0)
-    {
-        int32_t dsp_w = glctx.disp_w;
-        int32_t dsp_h = glctx.disp_h;
-        int32_t drw_x, drw_y, drw_w, drw_h;
-
-        texid = create_2d_texture (cap_buf, cap_w, cap_h);
-
-        AdjustTexture (dsp_w, dsp_h, cap_w, cap_h, &drw_x, &drw_y, &drw_w, &drw_h);
-
-        input_tex->w      = cap_w;
-        input_tex->h      = cap_h;
-        input_tex->texid  = texid;
-        input_tex->draw_x = drw_x;
-        input_tex->draw_y = drw_y;
-        input_tex->draw_w = drw_w;
-        input_tex->draw_h = drw_h;
-    }
-    else
-    {
-        glBindTexture (GL_TEXTURE_2D, texid);
-        glTexSubImage2D (GL_TEXTURE_2D, 0, 0, 0, cap_w, cap_h, GL_RGBA, GL_UNSIGNED_BYTE, cap_buf);
-    }
-
-    glctx.tex_camera_valid = true;
+    memset (&glctx, 0, sizeof (glctx));
 }
 
+AppEngine::~AppEngine() 
+{
+    DeleteCamera();
+}
+
+
+/* ---------------------------------------------------------------------------- *
+ *  Interfaces to android application framework
+ * ---------------------------------------------------------------------------- */
+void
+AppEngine::OnAppInitWindow (void)
+{
+    InitGLES();
+    InitCamera();
+}
+
+void
+AppEngine::OnAppTermWindow (void)
+{
+    DeleteCamera();
+    TerminateGLES();
+}
+
+struct android_app *
+AppEngine::AndroidApp (void) const
+{
+    return m_app;
+}
+
+
+/* ---------------------------------------------------------------------------- *
+ *  OpenGLES Render Functions
+ * ---------------------------------------------------------------------------- */
+void
+AppEngine::LoadInputTexture (texture_2d_t *tex, char *fname)
+{
+    int32_t img_w, img_h;
+    uint8_t *img_buf = asset_read_image (AndroidApp()->activity->assetManager, fname, &img_w, &img_h);
+
+    create_2d_texture_ex (tex, img_buf, img_w, img_h, pixfmt_fourcc('R', 'G', 'B', 'A'));
+    asset_free_image (img_buf);
+}
 
 void 
 AppEngine::InitGLES (void)
@@ -505,10 +458,12 @@ AppEngine::InitGLES (void)
     init_dbgstr (w, h);
 
     asset_read_file (m_app->activity->assetManager,
-                    (char *)DEEPLAB_MODEL_PATH, m_detect_tflite_model_buf);
+                    (char *)DEEPLAB_MODEL_PATH, m_tflite_model_buf);
 
     ret = init_tflite_deeplab (
-        (const char *)m_detect_tflite_model_buf.data(), m_detect_tflite_model_buf.size());
+        (const char *)m_tflite_model_buf.data(), m_tflite_model_buf.size());
+
+    setup_imgui (w, h, &imgui_data);
 
     glctx.disp_w = w;
     glctx.disp_h = h;
@@ -533,6 +488,12 @@ AppEngine::UpdateFrame (void)
 
     if (m_cameraGranted)
     {
+        if (m_camera_facing != imgui_data.camera_facing)
+        {
+            m_camera_facing = imgui_data.camera_facing;
+            DeleteCamera ();
+            CreateCamera (m_camera_facing);
+        }
         UpdateCameraTexture();
     }
 
@@ -553,7 +514,7 @@ AppEngine::InitCamera (void)
         return;
     }
 
-    CreateCamera();
+    CreateCamera (m_camera_facing);
 }
 
 
@@ -566,161 +527,76 @@ AppEngine::DeleteCamera(void)
         m_camera = nullptr;
     }
 
-    if (m_img_reader)
-    {
-        AImageReader_delete(m_img_reader);
-        m_img_reader = nullptr;
-    }
+    m_ImgReader.ReleaseImageReader ();
 }
 
 
 void 
-AppEngine::CreateCamera(void) 
+AppEngine::CreateCamera (int facing)
 {
     m_camera = new NDKCamera();
     ASSERT (m_camera, "Failed to Create CameraObject");
 
-    int32_t cam_w, cam_h, cam_fmt;
-    m_camera->MatchCaptureSizeRequest (&cam_w, &cam_h, &cam_fmt);
+    m_camera->SelectCameraFacing (facing);
 
-    media_status_t status;
-    status = AImageReader_new (cam_w, cam_h, cam_fmt, MAX_BUF_COUNT, &m_img_reader);
-    ASSERT (status == AMEDIA_OK, "Failed to create AImageReader");
-
-    ANativeWindow *nativeWindow;
-    status = AImageReader_getWindow (m_img_reader, &nativeWindow);
-    ASSERT (status == AMEDIA_OK, "Could not get ANativeWindow");
+    m_ImgReader.InitImageReader (640, 480);
+    ANativeWindow *nativeWindow = m_ImgReader.GetNativeWindow();
 
     m_camera->CreateSession (nativeWindow);
-
     m_camera->StartPreview (true);
 }
 
-
-
-
-
-/**
- * Helper function for YUV_420 to RGB conversion. Courtesy of Tensorflow
- * ImageClassifier Sample:
- * https://github.com/tensorflow/tensorflow/blob/master/tensorflow/examples/android/jni/yuv2rgb.cc
- * The difference is that here we have to swap UV plane when calling it.
- */
-#ifndef MAX
-#define MAX(a, b)           \
-  ({                        \
-    __typeof__(a) _a = (a); \
-    __typeof__(b) _b = (b); \
-    _a > _b ? _a : _b;      \
-  })
-#define MIN(a, b)           \
-  ({                        \
-    __typeof__(a) _a = (a); \
-    __typeof__(b) _b = (b); \
-    _a < _b ? _a : _b;      \
-  })
-#endif
-
-// This value is 2 ^ 18 - 1, and is used to clamp the RGB values before their
-// ranges are normalized to eight bits.
-static const int kMaxChannelValue = 262143;
-
-static inline uint32_t
-YUV2RGB(int nY, int nU, int nV)
-{
-    nY -= 16;
-    nU -= 128;
-    nV -= 128;
-    if (nY < 0) nY = 0;
-
-    // This is the floating point equivalent. We do the conversion in integer
-    // because some Android devices do not have floating point in hardware.
-    // nR = (int)(1.164 * nY + 1.596 * nV);
-    // nG = (int)(1.164 * nY - 0.813 * nV - 0.391 * nU);
-    // nB = (int)(1.164 * nY + 2.018 * nU);
-
-    int nR = (int)(1192 * nY + 1634 * nV);
-    int nG = (int)(1192 * nY - 833 * nV - 400 * nU);
-    int nB = (int)(1192 * nY + 2066 * nU);
-
-    nR = MIN(kMaxChannelValue, MAX(0, nR));
-    nG = MIN(kMaxChannelValue, MAX(0, nG));
-    nB = MIN(kMaxChannelValue, MAX(0, nB));
-
-    nR = (nR >> 10) & 0xff;
-    nG = (nG >> 10) & 0xff;
-    nB = (nB >> 10) & 0xff;
-
-    return 0xff000000 | (nR << 16) | (nG << 8) | nB;
-}
-
 void
-AppEngine::AcquireCameraFrame (void **cap_buf, int *cap_w, int *cap_h)
+AppEngine::UpdateCameraTexture ()
 {
-    static uint32_t *s_cap_buf = NULL;
-
-    *cap_buf = NULL;
-    *cap_w   = 0;
-    *cap_h   = 0;
-
-    if (!m_img_reader) 
+    /* Acquire the latest AHardwareBuffer */
+    AHardwareBuffer *ahw_buf = NULL;
+    int ret = m_ImgReader.GetCurrentHWBuffer (&ahw_buf);
+    if (ret != 0)
         return;
 
-    AImage *image;
-    media_status_t status = AImageReader_acquireLatestImage(m_img_reader, &image);
-    if (status != AMEDIA_OK) 
+    /* Get EGLClientBuffer */
+    EGLClientBuffer egl_buf = eglGetNativeClientBufferANDROID (ahw_buf);
+    if (!egl_buf)
     {
+        DBG_LOGE("Failed to create EGLClientBuffer");
         return;
     }
 
-    int32_t img_w, img_h;
-    int32_t yStride, uvStride;
-    uint8_t *yPixel, *uPixel, *vPixel;
-    int32_t yLen, uLen, vLen;
-    int32_t uvPixelStride;
-    AImageCropRect srcRect;
-
-    AImage_getWidth           (image, &img_w);
-    AImage_getHeight          (image, &img_h);
-    AImage_getPlaneRowStride  (image, 0, &yStride);
-    AImage_getPlaneRowStride  (image, 1, &uvStride);
-    AImage_getPlaneData       (image, 0, &yPixel, &yLen);
-    AImage_getPlaneData       (image, 1, &vPixel, &vLen);
-    AImage_getPlaneData       (image, 2, &uPixel, &uLen);
-    AImage_getPlanePixelStride(image, 1, &uvPixelStride);
-    AImage_getCropRect        (image, &srcRect);
-
-    int32_t width  = srcRect.right  - srcRect.left;
-    int32_t height = srcRect.bottom - srcRect.top ;
-    int32_t x, y;
-
-    if (s_cap_buf == NULL)
+    /* (Re)Create EGLImage */
+    if (glctx.egl_img != EGL_NO_IMAGE_KHR)
     {
-        s_cap_buf = (uint32_t *)calloc (4, img_w * img_h);
+        eglDestroyImageKHR (egl_get_display(), glctx.egl_img);
+        glctx.egl_img = EGL_NO_IMAGE_KHR;
     }
 
-    uint32_t *out = s_cap_buf;
-    for (y = 0; y < height; y++) 
+    EGLint attrs[] = {EGL_IMAGE_PRESERVED_KHR, EGL_TRUE, EGL_NONE,};
+    glctx.egl_img = eglCreateImageKHR (egl_get_display(), EGL_NO_CONTEXT,
+                                       EGL_NATIVE_BUFFER_ANDROID, egl_buf, attrs);
+
+    /* Bind to GL_TEXTURE_EXTERNAL_OES */
+    texture_2d_t *input_tex = &glctx.tex_camera;
+    if (input_tex->texid == 0)
     {
-        const uint8_t *pY = yPixel + yStride * (y + srcRect.top) + srcRect.left;
+        GLuint texid;
+        glGenTextures (1, &texid);
+        glBindTexture (GL_TEXTURE_EXTERNAL_OES, texid);
 
-        int32_t uv_row_start = uvStride * ((y + srcRect.top) >> 1);
-        const uint8_t *pU = uPixel + uv_row_start + (srcRect.left >> 1);
-        const uint8_t *pV = vPixel + uv_row_start + (srcRect.left >> 1);
+        glTexParameterf (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameterf (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameterf (GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameterf (GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
-        for (x = 0; x < width; x++) 
-        {
-            const int32_t uv_offset = (x >> 1) * uvPixelStride;
-            out[x] = YUV2RGB (pY[x], pU[uv_offset], pV[uv_offset]);
-        }
-        out += img_w;
+        input_tex->texid  = texid;
+        input_tex->format = pixfmt_fourcc('E', 'X', 'T', 'X');
+        m_ImgReader.GetBufferDimension (&input_tex->width, &input_tex->height);
     }
+    glBindTexture (GL_TEXTURE_EXTERNAL_OES, input_tex->texid);
 
-    AImage_delete (image);
+    glEGLImageTargetTexture2DOES (GL_TEXTURE_EXTERNAL_OES, glctx.egl_img);
+    GLASSERT ();
 
-    *cap_buf = s_cap_buf;
-    *cap_w   = img_w;
-    *cap_h   = img_h;
+    glctx.tex_camera_valid = true;
 }
 
 
