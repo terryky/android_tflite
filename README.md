@@ -17,6 +17,10 @@ Run and measure the performance of TensorFlow Lite GPU Delegate on Android NDK.
 - Pose Estimation.<br>
 [<img src="tflite_posenet/tflite_posenet.png" width=500>](https://github.com/terryky/android_tflite/tree/master/tflite_posenet)
 
+### [Semantic Segmentation](https://github.com/terryky/android_tflite/tree/master/tflite_segmentation)
+- Assign semantic labels to every pixel in the input image.<br>
+[<img src="tflite_segmentation/tflite_segmentation.png" width=600>](https://github.com/terryky/android_tflite/tree/master/tflite_segmentation)
+
 ### [Artistic Style Transfer](https://github.com/terryky/android_tflite/tree/master/tflite_style_transfer)
 - Create new artworks in artistic style.<br>
 [<img src="tflite_style_transfer/style_transfer.png" width=600>](https://github.com/terryky/android_tflite/tree/master/tflite_style_transfer)
