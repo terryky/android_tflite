@@ -16,6 +16,7 @@
 #include <GLES2/gl2.h>
 
 #include "util_texture.h"
+#include "util_render_target.h"
 #include "camera_manager.h"
 #include "render_imgui.h"
 #include "tflite_dbface.h"
@@ -34,7 +35,11 @@ typedef struct gles_ctx {
     bool tex_camera_valid;
     texture_2d_t tex_static;
     texture_2d_t tex_camera;
+    texture_2d_t tex_input;
     EGLImage egl_img;
+
+    render_target_t rtarget_main;
+    render_target_t rtarget_crop;
 } gles_ctx_t;
 
 
@@ -63,6 +68,7 @@ public:
     
     void LoadInputTexture (texture_2d_t *tex, char *fname);
     void UpdateCameraTexture ();
+    void CropCameraTexture ();
 
     void UpdateFrame (void);
     void RenderFrame (void);
