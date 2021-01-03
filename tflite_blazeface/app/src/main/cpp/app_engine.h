@@ -63,8 +63,6 @@ public:
     
     void LoadInputTexture (texture_2d_t *tex, char *fname);
     void UpdateCameraTexture ();
-    void adjust_texture (int win_w, int win_h, int texw, int texh,
-                         int *dx, int *dy, int *dw, int *dh);
 
     void UpdateFrame (void);
     void RenderFrame (void);
@@ -73,11 +71,6 @@ public:
 
     // IMGUI
     void setup_imgui (int win_w, int win_h, imgui_data_t *imgui_data);
-
-    // Blazeface Specific
-    void feed_blazeface_image (texture_2d_t *srctex, int win_w, int win_h);
-    void render_detect_region (int ofstx, int ofsty, int texw, int texh,
-                               blazeface_result_t *detection, imgui_data_t *imgui_data);
 
     /* for touch gesture */
     ndk_helper::TapDetector        tap_detector_;

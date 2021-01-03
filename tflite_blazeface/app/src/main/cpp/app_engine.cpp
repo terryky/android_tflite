@@ -10,7 +10,6 @@
 #include "util_pmeter.h"
 #include "util_texture.h"
 #include "util_render2d.h"
-#include "tflite_blazeface.h"
 #include "app_engine.h"
 #include "render_imgui.h"
 #include "assertgl.h"
@@ -23,7 +22,7 @@
 
 /* resize image to DNN network input size and convert to fp32. */
 void
-AppEngine::feed_blazeface_image(texture_2d_t *srctex, int win_w, int win_h)
+feed_blazeface_image(texture_2d_t *srctex, int win_w, int win_h)
 {
     int x, y, w, h;
     float *buf_fp32 = (float *)get_blazeface_input_buf (&w, &h);
@@ -61,9 +60,9 @@ AppEngine::feed_blazeface_image(texture_2d_t *srctex, int win_w, int win_h)
 }
 
 
-void
-AppEngine::render_detect_region (int ofstx, int ofsty, int texw, int texh,
-                                 blazeface_result_t *detection, imgui_data_t *imgui_data)
+static void
+render_detect_region (int ofstx, int ofsty, int texw, int texh,
+                      blazeface_result_t *detection, imgui_data_t *imgui_data)
 {
     float col_white[] = {1.0f, 1.0f, 1.0f, 1.0f};
     float *col_frame = imgui_data->frame_color;
@@ -135,9 +134,9 @@ AppEngine::DrawTFLiteConfigInfo ()
  *     +-+------+-+     +------+
  *                      +------+
  */
-void
-AppEngine::adjust_texture (int win_w, int win_h, int texw, int texh, 
-                           int *dx, int *dy, int *dw, int *dh)
+static void
+adjust_texture (int win_w, int win_h, int texw, int texh, 
+                int *dx, int *dy, int *dw, int *dh)
 {
     float win_aspect = (float)win_w / (float)win_h;
     float tex_aspect = (float)texw  / (float)texh;
