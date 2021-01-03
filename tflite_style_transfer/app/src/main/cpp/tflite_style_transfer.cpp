@@ -7,86 +7,36 @@
 #include "util_debug.h"
 
 
-static tflite_interpreter_t s_interpreter_style_predict;
-static float    *s_style_predict_in_ptr;
-static int      s_style_predict_img_w = 0;
-static int      s_style_predict_img_h = 0;
 
+
+static tflite_interpreter_t s_interpreter_style_predict;
+static tflite_tensor_t      s_predict_tensor_input;
+static tflite_tensor_t      s_predict_tensor_output;
 
 static tflite_interpreter_t s_interpreter_style_transfer;
-static float    *s_style_transfer_style_in_ptr;
-static float    *s_style_transfer_content_in_ptr;
-static int      s_style_transfer_style_dim;
-static int      s_style_transfer_img_w = 0;
-static int      s_style_transfer_img_h = 0;
-
-
-
-
-static int
-init_tflite_style_predict(tflite_interpreter_t *p, const char *model_buf, size_t model_size)
-{
-    tflite_create_interpreter (p, model_buf, model_size);
-
-    s_style_predict_in_ptr  = p->interpreter->typed_input_tensor<float>(0);
-
-    /* input image dimention */
-    int input_idx = p->interpreter->inputs()[0];
-    TfLiteIntArray *in_dim = p->interpreter->tensor(input_idx)->dims;
-    s_style_predict_img_w = in_dim->data[2];
-    s_style_predict_img_h = in_dim->data[1];
-    DBG_LOGI ("input image size: (%d, %d)\n", s_style_predict_img_w, s_style_predict_img_h);
-
-    /* style output  dimention */
-    int output_idx = p->interpreter->outputs()[0];
-    TfLiteIntArray *out_dim = p->interpreter->tensor(output_idx)->dims;
-    int s0 = out_dim->data[0];
-    int s1 = out_dim->data[1];
-    int s2 = out_dim->data[2];
-    int s3 = out_dim->data[3];
-    DBG_LOGI ("style output dim: (%dx%dx%dx%d)\n", s0, s1, s2, s3);
-
-    return 0;
-}
-
-static int
-init_tflite_style_trans(tflite_interpreter_t *p, const char *model_buf, size_t model_size)
-{
-    tflite_create_interpreter (p, model_buf, model_size);
-
-    s_style_transfer_content_in_ptr = p->interpreter->typed_input_tensor<float>(0);
-    s_style_transfer_style_in_ptr   = p->interpreter->typed_input_tensor<float>(1);
-
-    /* input image dimention */
-    int input_content_idx = p->interpreter->inputs()[0];
-    TfLiteIntArray *in_content_dim = p->interpreter->tensor(input_content_idx)->dims;
-    s_style_transfer_img_w = in_content_dim->data[2];
-    s_style_transfer_img_h = in_content_dim->data[1];
-    DBG_LOGI ("input image size: [%d](%d, %d)\n", input_content_idx, s_style_transfer_img_w, s_style_transfer_img_h);
-
-    int input_style_idx = p->interpreter->inputs()[1];
-    TfLiteIntArray *in_style_dim = p->interpreter->tensor(input_style_idx)->dims;
-    s_style_transfer_style_dim = in_style_dim->data[3];
-    DBG_LOGI ("input image size: [%d](%d)\n", input_style_idx, s_style_transfer_style_dim);
-
-    int output_style_idx = p->interpreter->outputs()[0];
-    TfLiteIntArray *out_dim = p->interpreter->tensor(output_style_idx)->dims;
-    int s0 = out_dim->data[0];
-    int s1 = out_dim->data[1];
-    int s2 = out_dim->data[2];
-    int s3 = out_dim->data[3];
-    DBG_LOGI ("style output dim: (%dx%dx%dx%d)\n", s0, s1, s2, s3);
-
-    return 0;
-}
+static tflite_tensor_t      s_transfer_tensor_content_in;
+static tflite_tensor_t      s_transfer_tensor_style_in;
+static tflite_tensor_t      s_transfer_tensor_output;
 
 
 int
 init_tflite_style_transfer (const char *predict_model_buf, size_t predict_model_size,
                             const char *transfr_model_buf, size_t transfr_model_size)
 {
-    init_tflite_style_predict (&s_interpreter_style_predict,  predict_model_buf, predict_model_size);
-    init_tflite_style_trans   (&s_interpreter_style_transfer, transfr_model_buf, transfr_model_size);
+    tflite_interpreter_t *p;
+
+    /* predict */
+    p = &s_interpreter_style_predict;
+    tflite_create_interpreter (p, predict_model_buf, predict_model_size);
+    tflite_get_tensor_by_name (p, 0, "style_image",                 &s_predict_tensor_input);
+    tflite_get_tensor_by_name (p, 1, "mobilenet_conv/Conv/BiasAdd", &s_predict_tensor_output);
+
+    /* transfeer */
+    p = &s_interpreter_style_transfer;
+    tflite_create_interpreter (p, transfr_model_buf, transfr_model_size);
+    tflite_get_tensor_by_name (p, 0, "content_image",               &s_transfer_tensor_content_in);
+    tflite_get_tensor_by_name (p, 0, "mobilenet_conv/Conv/BiasAdd", &s_transfer_tensor_style_in);
+    tflite_get_tensor_by_name (p, 1, "transformer/expand/conv3/conv/Sigmoid", &s_transfer_tensor_output);
 
     return 0;
 }
@@ -94,28 +44,24 @@ init_tflite_style_transfer (const char *predict_model_buf, size_t predict_model_
 void *
 get_style_predict_input_buf (int *w, int *h)
 {
-    *w = s_style_predict_img_w;
-    *h = s_style_predict_img_h;
-    return s_style_predict_in_ptr;
+    *w = s_predict_tensor_input.dims[2];
+    *h = s_predict_tensor_input.dims[1];
+    return (float *)s_predict_tensor_input.ptr;
 }
 
 void *
 get_style_transfer_style_input_buf (int *size)
 {
-    s_style_transfer_style_in_ptr = s_interpreter_style_transfer.interpreter->typed_input_tensor<float>(1);
-
-    *size = s_style_transfer_style_dim;
-    return s_style_transfer_style_in_ptr;
+    *size = s_transfer_tensor_style_in.dims[3];
+    return (float *)s_transfer_tensor_style_in.ptr;
 }
 
 void *
 get_style_transfer_content_input_buf (int *w, int *h)
 {
-    s_style_transfer_content_in_ptr = s_interpreter_style_transfer.interpreter->typed_input_tensor<float>(0);
-
-    *w = s_style_transfer_img_w;
-    *h = s_style_transfer_img_h;
-    return s_style_transfer_content_in_ptr;
+    *w = s_transfer_tensor_content_in.dims[2];
+    *h = s_transfer_tensor_content_in.dims[1];
+    return (float *)s_transfer_tensor_content_in.ptr;
 }
 
 
@@ -131,16 +77,15 @@ invoke_style_predict (style_predict_t *predict_result)
         return -1;
     }
 
-    int output_idx = s_interpreter_style_predict.interpreter->outputs()[0];
-    TfLiteIntArray *out_dim = s_interpreter_style_predict.interpreter->tensor(output_idx)->dims;
-    //int s0 = out_dim->data[0];
-    //int s1 = out_dim->data[1];
-    //int s2 = out_dim->data[2];
-    int s3 = out_dim->data[3];
+    //int s0 = s_predict_tensor_output.dims[0];
+    //int s1 = s_predict_tensor_output.dims[1];
+    //int s2 = s_predict_tensor_output.dims[2];
+    int s3 = s_predict_tensor_output.dims[3];
+    //fprintf (stderr, "style output dim: (%dx%dx%dx%d)\n", s0, s1, s2, s3);
 
     predict_result->size  = s3;
-    predict_result->param = s_interpreter_style_predict.interpreter->typed_output_tensor<float>(0); 
-    
+    predict_result->param = s_predict_tensor_output.ptr;
+
     return 0;
 }
 
@@ -154,16 +99,15 @@ invoke_style_transfer (style_transfer_t *transfered_result)
         return -1;
     }
 
-    int output_idx = s_interpreter_style_transfer.interpreter->outputs()[0];
-    TfLiteIntArray *out_dim = s_interpreter_style_transfer.interpreter->tensor(output_idx)->dims;
-    //int s0 = out_dim->data[0];
-    int s1 = out_dim->data[1];
-    int s2 = out_dim->data[2];
-    //int s3 = out_dim->data[3];
-    
+    //int s0 = s_transfer_tensor_output.dims[0];
+    int s1 = s_transfer_tensor_output.dims[1];
+    int s2 = s_transfer_tensor_output.dims[2];
+    //int s3 = s_transfer_tensor_output.dims[3];
+    //fprintf (stderr, "style output dim: (%dx%dx%dx%d)\n", s0, s1, s2, s3);
+
     transfered_result->h = s1;
     transfered_result->w = s2;
-    transfered_result->img = s_interpreter_style_transfer.interpreter->typed_output_tensor<float>(0); 
+    transfered_result->img = s_transfer_tensor_output.ptr;
 
     return 0;
 }
