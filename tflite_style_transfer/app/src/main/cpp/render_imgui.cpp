@@ -93,7 +93,7 @@ render_gui (imgui_data_t *imgui_data)
 {
     int win_w = 460;
     int win_h = 200;
-    int win_y = 50;
+    int win_y = 10;
 
     s_win_num = 0;
 
