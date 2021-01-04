@@ -110,7 +110,7 @@ AppEngine::DrawTFLiteConfigInfo ()
 #if defined (USE_GPU_DELEGATEV2)
     sprintf (strbuf, "GPU_DELEGATEV2: ON ");
 #else
-    sprintf (strbuf, "GPU_DELEGATEV2: OFF");
+    sprintf (strbuf, "GPU_DELEGATEV2: ---");
 #endif
     draw_dbgstr_ex (strbuf, glctx.disp_w - 250, glctx.disp_h - 24, 1.0f, col_white, col_bg);
 
@@ -262,7 +262,7 @@ AppEngine::RenderFrame ()
         draw_dbgstr (strbuf, 10, 10);
 
         /* renderer info */
-        int y = 10 + 22 * 2;
+        int y = win_h - 22 * 3;
         draw_dbgstr (glctx.str_glverstion, 10, y); y += 22;
         draw_dbgstr (glctx.str_glvendor,   10, y); y += 22;
         draw_dbgstr (glctx.str_glrender,   10, y); y += 22;
@@ -397,6 +397,9 @@ AppEngine::UpdateFrame (void)
         UpdateCameraTexture();
     }
 
+    if (m_cameraGranted && glctx.tex_camera_valid == false)
+        return;
+
     CropCameraTexture ();
 
     RenderFrame();
@@ -458,6 +461,7 @@ AppEngine::DeleteCamera(void)
     }
 
     m_ImgReader.ReleaseImageReader ();
+    glctx.tex_camera_valid = false;
 }
 
 
