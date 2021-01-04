@@ -18,6 +18,10 @@ Run and measure the performance of TensorFlow Lite GPU Delegate on Android NDK.
 - based on pretrained model of [https://github.com/yu4u/age-gender-estimation](https://github.com/yu4u/age-gender-estimation)<br>
 [<img src="tflite_age_gender/tflite_gender.jpg" width=300>](https://github.com/terryky/android_tflite/tree/master/tflite_age_gender)
 
+### [Image Classification](https://github.com/terryky/android_tflite/tree/master/tflite_classification)
+- Image Classfication using Moilenet.<br>
+[<img src="tflite_classification/tflite_classification.png" width=500>](https://github.com/terryky/android_tflite/tree/master/tflite_classification)
+
 ### [Object Detection](https://github.com/terryky/android_tflite/tree/master/tflite_detection)
 - Object Detection using MobileNet SSD.<br>
 [<img src="tflite_detection/tflite_detection.png" width=500>](https://github.com/terryky/android_tflite/tree/master/tflite_detection)
