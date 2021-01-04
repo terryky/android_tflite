@@ -16,8 +16,10 @@
 
 #define UNUSED(x) (void)(x)
 
-
-
+#define CAMERA_RESOLUTION_W     640
+#define CAMERA_RESOLUTION_H     480
+#define CAMERA_CROP_WIDTH       480 /* make a src image square */
+#define CAMERA_CROP_HEIGHT      480 /* make a src image square */
 
 
 /* resize image to DNN network input size and convert to fp32. */
@@ -41,7 +43,7 @@ feed_posenet_image(texture_2d_t *srctex, ssbo_t *ssbo, int win_w, int win_h)
 
     buf_ui8 = pui8;
 
-    draw_2d_texture_ex (srctex, 0, win_h - h, w, h, 1);
+    draw_2d_texture_ex (srctex, 0, win_h - h, w, h, RENDER2D_FLIP_V);
 
     glPixelStorei (GL_PACK_ALIGNMENT, 4);
     glReadPixels (0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, buf_ui8);
@@ -159,22 +161,12 @@ AppEngine::DrawTFLiteConfigInfo ()
     float col_white[] = {1.0f, 1.0f, 1.0f, 1.0f};
     float *col_bg = col_pink;
 
-    if (glctx.tex_camera_valid)
-    {
-        sprintf (strbuf, "CAMERA ENABLED");
-    }
-    else
-    {
-        sprintf (strbuf, "CAMERA DISABLED");
-    }
-    draw_dbgstr_ex (strbuf, glctx.disp_w - 250, 0, 1.0f, col_white, col_bg);
-
 #if defined (USE_GPU_DELEGATEV2)
     sprintf (strbuf, "GPU_DELEGATEV2: ON ");
 #else
-    sprintf (strbuf, "GPU_DELEGATEV2: OFF");
+    sprintf (strbuf, "GPU_DELEGATEV2: ---");
 #endif
-    draw_dbgstr_ex (strbuf, glctx.disp_w - 250, 24, 1.0f, col_white, col_bg);
+    draw_dbgstr_ex (strbuf, glctx.disp_w - 250, glctx.disp_h - 24, 1.0f, col_white, col_bg);
 
 }
 
@@ -190,8 +182,8 @@ AppEngine::DrawTFLiteConfigInfo ()
  *                      +------+
  */
 static void
-adjust_texture (int win_w, int win_h, int texw, int texh, 
-                int *dx, int *dy, int *dw, int *dh)
+adjust_texture (int win_w, int win_h, int texw, int texh,
+                int *dx, int *dy, int *dw, int *dh, int full_zoom)
 {
     float win_aspect = (float)win_w / (float)win_h;
     float tex_aspect = (float)texw  / (float)texh;
@@ -199,7 +191,8 @@ adjust_texture (int win_w, int win_h, int texw, int texh,
     float scaled_w, scaled_h;
     float offset_x, offset_y;
 
-    if (win_aspect > tex_aspect)
+    if (((full_zoom == 0) && (win_aspect > tex_aspect)) ||
+        ((full_zoom == 1) && (win_aspect < tex_aspect)) )
     {
         scale = (float)win_h / (float)texh;
         scaled_w = scale * texw;
@@ -221,6 +214,7 @@ adjust_texture (int win_w, int win_h, int texw, int texh,
     *dw = (int)scaled_w;
     *dh = (int)scaled_h;
 }
+
 
 #if defined (USE_IMGUI)
 void
@@ -259,22 +253,16 @@ AppEngine::setup_imgui (int win_w, int win_h, imgui_data_t *imgui_data)
 void 
 AppEngine::RenderFrame ()
 {
-    texture_2d_t captex;
-
-    if (glctx.tex_camera_valid)
-        captex = glctx.tex_camera;
-    else
-        captex = glctx.tex_static;
-
+    texture_2d_t srctex = glctx.tex_input;
     int win_w  = glctx.disp_w;
     int win_h  = glctx.disp_h;
     ssbo_t *ssbo = NULL;
     static double ttime[10] = {0}, interval, invoke_ms;
 
     int draw_x, draw_y, draw_w, draw_h;
-	int texw = captex.width;
-	int texh = captex.height;
-    adjust_texture (win_w, win_h, texw, texh, &draw_x, &draw_y, &draw_w, &draw_h);
+    int texw = srctex.width;
+    int texh = srctex.height;
+    adjust_texture (win_w, win_h, texw, texh, &draw_x, &draw_y, &draw_w, &draw_h, 0);
 
     glClearColor (0.f, 0.f, 0.f, 1.0f);
 
@@ -298,7 +286,7 @@ AppEngine::RenderFrame ()
         /* --------------------------------------- *
          *  pose estimation
          * --------------------------------------- */
-        feed_posenet_image (&captex, ssbo, win_w, win_h);
+        feed_posenet_image (&srctex, ssbo, win_w, win_h);
 
         ttime[2] = pmeter_get_time_ms ();
         invoke_posenet (&pose_ret);
@@ -315,7 +303,7 @@ AppEngine::RenderFrame ()
         visualize_ssbo (ssbo);
 #endif
         /* visualize the object detection results. */
-        draw_2d_texture_ex (&captex, draw_x, draw_y, draw_w, draw_h, 0);
+        draw_2d_texture_ex (&srctex, draw_x, draw_y, draw_w, draw_h, 0);
         render_posenet_result (draw_x, draw_y, draw_w, draw_h, &pose_ret);
 
         /* --------------------------------------- *
@@ -329,7 +317,7 @@ AppEngine::RenderFrame ()
         draw_dbgstr (strbuf, 10, 10);
 
         /* renderer info */
-		int y = 10 + 22 * 2;
+        int y = win_h - 22 * 3;
         draw_dbgstr (glctx.str_glverstion, 10, y); y += 22;
         draw_dbgstr (glctx.str_glvendor,   10, y); y += 22;
         draw_dbgstr (glctx.str_glrender,   10, y); y += 22;
@@ -352,7 +340,7 @@ AppEngine::AppEngine (android_app* app)
     memset (&glctx, 0, sizeof (glctx));
 }
 
-AppEngine::~AppEngine() 
+AppEngine::~AppEngine()
 {
     DeleteCamera();
 }
@@ -425,6 +413,16 @@ AppEngine::InitGLES (void)
     glctx.disp_h = h;
     LoadInputTexture (&glctx.tex_static, (char *)"pakutaso_person.jpg");
 
+    /* render target for default framebuffer */
+    get_render_target (&glctx.rtarget_main);
+
+    /* render target for camera cropping */
+    create_render_target (&glctx.rtarget_crop, CAMERA_CROP_WIDTH, CAMERA_CROP_HEIGHT, RTARGET_COLOR);
+    glctx.tex_input.texid  = glctx.rtarget_crop.texc_id;
+    glctx.tex_input.width  = glctx.rtarget_crop.width;
+    glctx.tex_input.height = glctx.rtarget_crop.height;
+    glctx.tex_input.format = pixfmt_fourcc('R', 'G', 'B', 'A');
+
     glctx.initdone = 1;
 }
 
@@ -453,7 +451,40 @@ AppEngine::UpdateFrame (void)
         UpdateCameraTexture();
     }
 
+    if (m_cameraGranted && glctx.tex_camera_valid == false)
+        return;
+
+    CropCameraTexture ();
+
     RenderFrame();
+}
+
+void
+AppEngine::CropCameraTexture (void)
+{
+    texture_2d_t srctex = glctx.tex_camera;
+    if (!glctx.tex_camera_valid)
+        srctex = glctx.tex_static;
+
+    /* render to square FBO */
+    render_target_t *rtarget = &glctx.rtarget_crop;
+    set_render_target (rtarget);
+    set_2d_projection_matrix (rtarget->width, rtarget->height);
+    glClear (GL_COLOR_BUFFER_BIT);
+
+    int draw_x, draw_y, draw_w, draw_h;
+    adjust_texture (rtarget->width, rtarget->height, srctex.width, srctex.height,
+                    &draw_x, &draw_y, &draw_w, &draw_h, 1);
+
+    /* when we use inner camera, enable horizontal flip. */
+    int flip = m_camera_facing ? RENDER2D_FLIP_H : 0;
+    flip |= RENDER2D_FLIP_V;
+    draw_2d_texture_ex (&srctex, draw_x, draw_y, draw_w, draw_h, flip);
+
+    /* reset to the default framebuffer */
+    rtarget = &glctx.rtarget_main;
+    set_render_target (rtarget);
+    set_2d_projection_matrix (rtarget->width, rtarget->height);
 }
 
 
@@ -484,6 +515,7 @@ AppEngine::DeleteCamera(void)
     }
 
     m_ImgReader.ReleaseImageReader ();
+    glctx.tex_camera_valid = false;
 }
 
 
@@ -495,7 +527,7 @@ AppEngine::CreateCamera (int facing)
 
     m_camera->SelectCameraFacing (facing);
 
-    m_ImgReader.InitImageReader (640, 480);
+    m_ImgReader.InitImageReader (CAMERA_RESOLUTION_W, CAMERA_RESOLUTION_H);
     ANativeWindow *nativeWindow = m_ImgReader.GetNativeWindow();
 
     m_camera->CreateSession (nativeWindow);
