@@ -43,6 +43,10 @@ Run and measure the performance of TensorFlow Lite GPU Delegate on Android NDK.
 - based on pretrained model of [https://github.com/TachibanaYoshino/AnimeGANv2](https://github.com/TachibanaYoshino/AnimeGANv2)<br>
 [<img src="tflite_animegan2/animegan2.png" width=600>](https://github.com/terryky/android_tflite/tree/master/tflite_animegan2)
 
+### [U^2-Net portrait drawing](https://github.com/terryky/android_tflite/tree/master/tflite_face_portrait)
+- Human portrait drawing by [U^2-Net](https://github.com/NathanUA/U-2-Net).<br>
+[<img src="tflite_face_portrait/face_portrait.jpg" width=600>](https://github.com/terryky/android_tflite/tree/master/tflite_face_portrait)
+
 ### [Artistic Style Transfer](https://github.com/terryky/android_tflite/tree/master/tflite_style_transfer)
 - Create new artworks in artistic style.<br>
 [<img src="tflite_style_transfer/style_transfer.png" width=600>](https://github.com/terryky/android_tflite/tree/master/tflite_style_transfer)
