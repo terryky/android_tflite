@@ -13,6 +13,11 @@ Run and measure the performance of TensorFlow Lite GPU Delegate on Android NDK.
 - Higher accurate Face Detection.<br>
 [<img src="tflite_dbface/tflite_dbface.jpg" width=600>](https://github.com/terryky/android_tflite/tree/master/tflite_dbface)
 
+### [Age Gender Estimation](https://github.com/terryky/android_tflite/tree/master/tflite_age_gender)
+- Detect faces and estimage their Age and Gender
+- based on pretrained model of [https://github.com/yu4u/age-gender-estimation](https://github.com/yu4u/age-gender-estimation)<br>
+[<img src="tflite_age_gender/tflite_gender.jpg" width=300>](https://github.com/terryky/android_tflite/tree/master/tflite_age_gender)
+
 ### [Object Detection](https://github.com/terryky/android_tflite/tree/master/tflite_detection)
 - Object Detection using MobileNet SSD.<br>
 [<img src="tflite_detection/tflite_detection.png" width=500>](https://github.com/terryky/android_tflite/tree/master/tflite_detection)
@@ -88,10 +93,26 @@ $ ./studio.sh
 - Open application folder (eg. ```~/work/android_tflite/tflite_posenet```).
 - Build and Run.
 
-## Tested Environment
+## 3. Tested Environment
 
 | Host PC             | Target Device           |
 |:-------------------:|:-----------------------:|
 | x86_64              | arm64-v8a               |
 | Ubuntu 18.04.4 LTS  | Android 9 (API Level 28)|
 | Android NDK r20b    |                         |
+
+
+## 4. Related Articles
+- [Android NDK 環境で TensorFlow Lite GPU Delegate を使う方法 (Qiita)](https://qiita.com/terryky/items/7b92114af1c9b3b3ef7b)
+
+## 5.  Acknowledgements
+- https://github.com/google/mediapipe
+- https://github.com/yu4u/age-gender-estimation
+- https://github.com/TachibanaYoshino/AnimeGANv2
+- https://github.com/openvinotoolkit/open_model_zoo/tree/master/demos/python_demos/human_pose_estimation_3d_demo
+- https://github.com/ialhashim/DenseDepth
+- https://github.com/MaybeShewill-CV/bisenetv2-tensorflow
+- https://github.com/margaretmz/Selfie2Anime-with-TFLite
+- https://github.com/NathanUA/U-2-Net
+- https://tfhub.dev/sayakpaul/lite-model/east-text-detector/int8/1
+- https://github.com/PINTO0309/PINTO_model_zoo
