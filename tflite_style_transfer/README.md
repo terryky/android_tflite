@@ -2,5 +2,5 @@
 Artistic Style Transfer
  - create a new image with an artistic style.
 
- ![capture image](style_transfer_mov.png "capture image")
+ ![capture image](style_transfer_mov.gif "capture image")
 
