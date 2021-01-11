@@ -38,6 +38,11 @@ Run and measure the performance of TensorFlow Lite GPU Delegate on Android NDK.
 - Assign semantic labels to every pixel in the input image.<br>
 [<img src="tflite_segmentation/tflite_segmentation.png" width=600>](https://github.com/terryky/android_tflite/tree/master/tflite_segmentation)
 
+### [Selfie to Anime](https://github.com/terryky/android_tflite/tree/master/tflite_selfie2anime)
+- Generate anime-style face image.<br>
+- based on pretrained model of [https://github.com/margaretmz/Selfie2Anime-with-TFLite](https://github.com/margaretmz/Selfie2Anime-with-TFLite)<br>
+[<img src="tflite_selfie2anime/selfie2anime.jpg" width=600>](https://github.com/terryky/android_tflite/tree/master/tflite_selfie2anime)
+
 ### [Anime GAN](https://github.com/terryky/android_tflite/tree/master/tflite_animegan2)
 - Transform photos into anime style images.<br>
 - based on pretrained model of [https://github.com/TachibanaYoshino/AnimeGANv2](https://github.com/TachibanaYoshino/AnimeGANv2)<br>
