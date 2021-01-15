@@ -39,8 +39,8 @@ echo "----------------------------------------------------"
 ./configure
 
 
-bazel build -s -c opt --cxxopt='--std=c++11' --config=android_arm64 //tensorflow/lite:libtensorflowlite.so
-bazel build -s -c opt --cxxopt='--std=c++11' --config android_arm64 //tensorflow/lite/delegates/gpu:libtensorflowlite_gpu_delegate.so
+bazel build -s -c opt --strip always --cxxopt='--std=c++11' --config=android_arm64 //tensorflow/lite:libtensorflowlite.so
+bazel build -s -c opt --strip always --cxxopt='--std=c++11' --config android_arm64 //tensorflow/lite/delegates/gpu:libtensorflowlite_gpu_delegate.so
 
 ls -l bazel-bin/tensorflow/lite/
 ls -l bazel-bin/tensorflow/lite/delegates/gpu
