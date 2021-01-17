@@ -34,6 +34,11 @@ Run and measure the performance of TensorFlow Lite GPU Delegate on Android NDK.
 - Pose Estimation.<br>
 [<img src="tflite_posenet/tflite_posenet.png" width=500>](https://github.com/terryky/android_tflite/tree/master/tflite_posenet)
 
+### [Depth Estimation (DenseDepth)](https://github.com/terryky/android_tflite/tree/master/tflite_dense_depth)
+- Depth Estimation from single images.<br>
+- based on pretrained model of [https://github.com/ialhashim/DenseDepth](https://github.com/ialhashim/DenseDepth)
+[<img src="tflite_dense_depth/dense_depth.jpg" width=600>](https://github.com/terryky/android_tflite/tree/master/tflite_dense_depth)
+
 ### [Semantic Segmentation](https://github.com/terryky/android_tflite/tree/master/tflite_segmentation)
 - Assign semantic labels to every pixel in the input image.<br>
 [<img src="tflite_segmentation/tflite_segmentation.png" width=600>](https://github.com/terryky/android_tflite/tree/master/tflite_segmentation)
