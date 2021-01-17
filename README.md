@@ -105,9 +105,15 @@ $ ls -l tensorflow/bazel-bin/tensorflow/lite/delegates/gpu/
 ```
 
 
+### 2.3 Download the needed assets
+
+```
+$ cd ~/work/android_tflite
+$ ./download_all_assets.sh
+```
 
 
-### 2.3 Build Android Applications
+### 2.4 Build Android Applications
 - Download and install [Android Studio](https://developer.android.com/studio/install).
 - Start Android Studio.
 
