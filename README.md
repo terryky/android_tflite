@@ -26,6 +26,10 @@ Run and measure the performance of TensorFlow Lite GPU Delegate on Android NDK.
 - Object Detection using MobileNet SSD.<br>
 [<img src="tflite_detection/tflite_detection.png" width=500>](https://github.com/terryky/android_tflite/tree/master/tflite_detection)
 
+### [Hair Segmentation](https://github.com/terryky/android_tflite/tree/master/tflite_hair_segmentation)
+- Hair segmentation and recoloring.<br>
+[<img src="tflite_hair_segmentation/hair_segmentation.jpg" width=600>](https://github.com/terryky/android_tflite/tree/master/tflite_hair_segmentation)
+
 ### [3D Handpose](https://github.com/terryky/android_tflite/tree/master/tflite_handpose)
 - 3D Handpose Estimation from single RGB images.<br>
 [<img src="tflite_handpose/handpose.png" width=600>](https://github.com/terryky/android_tflite/tree/master/tflite_handpose)
