@@ -12,3 +12,6 @@ echo "============= download assets for tflite_dense_depth ==============="
 cd ${SCRIPT_DIR}/tflite_dense_depth/app/src/main/assets/model/
 ./download.sh
 
+echo "============= download assets for tflite_mirnet ==============="
+cd ${SCRIPT_DIR}/tflite_mirnet/app/src/main/assets/model/
+./download.sh
