@@ -65,6 +65,10 @@ Run and measure the performance of TensorFlow Lite GPU Delegate on Android NDK.
 - Create new artworks in artistic style.<br>
 [<img src="tflite_style_transfer/style_transfer.png" width=600>](https://github.com/terryky/android_tflite/tree/master/tflite_style_transfer)
 
+### [MIRNet](https://github.com/terryky/android_tflite/tree/master/tflite_mirnet)
+- Enhance low-light images upto a great extent.<br>
+- based on pretrained model of [https://github.com/sayakpaul/MIRNet-TFLite](https://github.com/sayakpaul/MIRNet-TFLite)
+[<img src="tflite_mirnet/mirnet.jpg" width=600>](https://github.com/terryky/android_tflite/tree/master/tflite_mirnet)
 
 
 ## 2. How to Build & Run
