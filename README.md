@@ -34,6 +34,10 @@ Run and measure the performance of TensorFlow Lite GPU Delegate on Android NDK.
 - 3D Handpose Estimation from single RGB images.<br>
 [<img src="tflite_handpose/handpose.png" width=600>](https://github.com/terryky/android_tflite/tree/master/tflite_handpose)
 
+### [Iris Detection](https://github.com/terryky/android_tflite/tree/master/tflite_iris_landmark)
+- Eye position estimation by detecting the iris.<br>
+[<img src="tflite_iris_landmark/iris_landmark.png" width=600>](https://github.com/terryky/android_tflite/tree/master/tflite_iris_landmark)
+
 ### [Posenet](https://github.com/terryky/android_tflite/tree/master/tflite_posenet)
 - Pose Estimation.<br>
 [<img src="tflite_posenet/tflite_posenet.png" width=500>](https://github.com/terryky/android_tflite/tree/master/tflite_posenet)
